@@ -7,7 +7,7 @@
     <remap from="~reset" to="/data_collector_node/reset" />
     <remap from="~capture_data" to="/data_collector_node/capture_point_cloud" />
     <remap from="~data_collected" to="/data_collected" />
-    <param name="fusion_frame" value="base_link"/>
+    <param name="fusion_frame" value="base"/>
     <rosparam param="bounding_box">[0.28,0.65,-0.44,0.39,0.01,0.50]</rosparam>
   </node>
 </launch>

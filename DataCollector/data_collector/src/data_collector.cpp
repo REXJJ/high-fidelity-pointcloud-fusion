@@ -292,8 +292,8 @@ void DataCollection::onReceivedPointCloud(const sensor_msgs::PointCloud2ConstPtr
 		saveTransformation(output_transformation,fusion_frame_T_camera);	
 		//New Changes...
 		point_cloud_saved_=true;
-		if(allSaved())
-			sendSavedMessage();
+        cout<<"Resetting pointcloud saving callback. "<<endl;
+        sendSavedMessage();
 
 	}
 }
