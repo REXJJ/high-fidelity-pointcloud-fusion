@@ -176,6 +176,7 @@ DataCollection::DataCollection(ros::NodeHandle& nh,const std::string& fusion_fra
 	point_cloud_no_=0,depth_image_no_=0;
 	max_frames_=1;
 	point_cloud_saved_=false,color_image_saved_=false,depth_image_saved_=false;
+	publish_cloud_ = nh.advertise<sensor_msgs::PointCloud2> ("pcl_fusion_node/fused_points", 1);
 }
 
 void DataCollection::cameraInfoCb(const sensor_msgs::CameraInfoConstPtr& msg)
@@ -285,6 +286,11 @@ void DataCollection::onReceivedPointCloud(const sensor_msgs::PointCloud2ConstPtr
 		return;
 	}
 	string output_pcd=directory_name_+"/pointclouds/cloud"+to_string(take_)+to_string(point_cloud_no_++)+".pcd";
+	pcl::PointCloud<pcl::PointXYZRGB> cloud_transformed;
+	pcl::transformPointCloud (cloud, cloud_transformed, fusion_frame_T_camera);
+        combined_pcl_=combined_pcl_+cloud_transformed;
+	combined_pcl_.header.frame_id = fusion_frame_;
+	PCLUtilities::publishPointCloud<PointXYZRGB>(combined_pcl_,publish_cloud_);
 	pcl::io::savePCDFileASCII (output_pcd,cloud);
 	if(point_cloud_no_==max_frames_)
 	{
@@ -315,6 +321,7 @@ bool DataCollection::reset(std_srvs::TriggerRequest& req, std_srvs::TriggerRespo
 	res.success=true;
 	collect_data_ = false;
 	take_=0;
+	combined_pcl_.clear();
 	return true;
 }
 
@@ -344,7 +351,7 @@ int main(int argc, char** argv)
 	ros::NodeHandle pnh("~");
 	string fusion_frame="";
 	pnh.param<std::string>("fusion_frame", fusion_frame, "fusion_frame");
-	string directory_name = "/home/rex/REX_WS/Test_WS/POINT_CLOUD_STITCHING/data/data_08-31/";
+	string directory_name = "/home/rex/Desktop/REX_WORK_SPACE/WorkSpace/data/";
 	std::vector<double> bounding_box;
 	pnh.param("bounding_box", bounding_box, std::vector<double>());
 	DataCollection dc(pnh,fusion_frame,bounding_box,directory_name); 
