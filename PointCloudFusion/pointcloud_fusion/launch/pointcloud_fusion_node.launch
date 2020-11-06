@@ -1,0 +1,13 @@
+<launch>
+  <node name="pointcloud_fusion" pkg="pointcloud_fusion" type="pointcloud_fusion" output="screen">
+    <remap from="~input_point_cloud" to="/camera/depth/color/points" />
+    <remap from="~input_color_image" to="/camera/color/image_raw" />
+    <remap from="~input_depth_image" to="/camera/aligned_depth_to_color/image_raw" />
+    <remap from="~input_camera_information" to="/camera/aligned_depth_to_color/camera_info" />
+    <remap from="~reset" to="/data_collector_node/reset" />
+    <remap from="~capture_data" to="/data_collector_node/capture_point_cloud" />
+    <remap from="~data_collected" to="/data_collected" />
+    <param name="fusion_frame" value="base_link"/>
+    <rosparam param="bounding_box">[0.28,0.65,-0.44,0.39,0.01,0.50]</rosparam>
+  </node>
+</launch>
