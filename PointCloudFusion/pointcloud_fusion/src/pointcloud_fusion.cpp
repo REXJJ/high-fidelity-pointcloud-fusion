@@ -78,7 +78,7 @@
 /************************************************/
 //LOCAL HEADERS
 /***********************************************/
-#include "point_cloud_utilities/pcl_utilities.hpp"
+#include "pcl_ros_utilities/pcl_ros_utilities.hpp"
 
 using namespace std;
 using namespace pcl;
