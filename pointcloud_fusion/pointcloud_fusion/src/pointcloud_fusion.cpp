@@ -149,8 +149,8 @@ void PointcloudFusion::onReceivedPointCloud(const sensor_msgs::PointCloud2ConstP
         pcl_conversions::toPCL(*cloud_in, pcl_pc2);
         pcl::PointCloud<pcl::PointXYZRGB> cloud;
         cloud = PCLUtilities::pointCloud2ToPclXYZRGB(pcl_pc2);
-        if(counter++%10==0)
-            clouds_.push_back(make_pair(cloud_in->header.stamp,cloud));
+        // pcl::PointCloud<pcl::PointXYZRGB> cloud_downsampled = PCLUtilities::downsample<pcl::PointXYZRGB>(cloud,0.0005);
+        clouds_.push_back(make_pair(cloud_in->header.stamp,cloud));
         std::cout<<"Pointcloud received."<<std::endl;
         std::cout<<cloud_in->header<<std::endl;
     }
@@ -189,18 +189,23 @@ bool PointcloudFusion::filterAndFuse(std_srvs::TriggerRequest& req, std_srvs::Tr
         auto query = make_pair(clouds_[i].first,Eigen::Affine3d::Identity());
         auto result = std::lower_bound(transformations_.begin(),transformations_.end(),query,[](trans a,trans b)->bool { return a.first < b.first; });
         auto transformation = result->second;
+        pcl::PointCloud<pcl::PointXYZRGB> cloud_temp;
+        for(auto point:cloud.points)
+            if(point.z<1.0)
+                cloud_temp.points.push_back(point);
         pcl::PointCloud<pcl::PointXYZRGB> cloud_transformed;
-        pcl::transformPointCloud (cloud, cloud_transformed, transformation);
+        pcl::transformPointCloud (cloud_temp, cloud_transformed, transformation);
         std::cout<<cloud_transformed.points.size()<<std::endl;
         combined_pcl_ = combined_pcl_ + cloud_transformed;
         std::cout<<"Query: "<<query.first<<" Result: "<<result->first<<std::endl;
         std::cout<<"Processing cloud number: "<<i<<" out of "<<clouds_.size()<<std::endl;
     }
     std::cout<<combined_pcl_.points.size()<<std::endl;
-    auto processed_cloud = PCLUtilities::downsample<pcl::PointXYZRGB>(combined_pcl_,0.01);
+    auto processed_cloud = PCLUtilities::downsample<pcl::PointXYZRGB>(combined_pcl_,0.005);
     std::cout<<combined_pcl_.points.size()<<std::endl;
+    std::cout<<processed_cloud.points.size()<<std::endl;
     // PCLUtilities::publishPointCloud<pcl::PointXYZRGB>(combined_pcl_,processed_cloud_);
-    pcl::io::savePCDFileASCII ("/home/rex/REX_WS/Test_WS/test.pcd",processed_cloud );
+    pcl::io::savePCDFileASCII ("/home/rflin/Desktop/test.pcd",processed_cloud );
     std::cout<<"Fusion Done..."<<std::endl;
     res.success=true;
     return true;
@@ -238,7 +243,7 @@ int main(int argc, char** argv)
 	std::vector<double> bounding_box;
 	pnh.param("bounding_box", bounding_box, std::vector<double>());
 	PointcloudFusion dc(pnh,fusion_frame,bounding_box,directory_name); 
-	ros::Rate loop_rate(30);
+	ros::Rate loop_rate(1);
 	while(ros::ok())
 	{
         dc.captureTransformations();//TODO: Find a way to abstract this out of the main loop.
