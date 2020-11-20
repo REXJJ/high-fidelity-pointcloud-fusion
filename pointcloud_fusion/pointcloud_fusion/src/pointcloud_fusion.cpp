@@ -70,6 +70,9 @@
 #include <Eigen/Core>
 #include <boost/make_shared.hpp>
 #include <boost/date_time/posix_time/posix_time.hpp>
+#include <boost/interprocess/shared_memory_object.hpp>
+#include <boost/interprocess/mapped_region.hpp>
+
 /************************************************/
 //LOCAL HEADERS
 /***********************************************/
@@ -77,18 +80,20 @@
 
 using namespace std;
 using namespace pcl;
+using namespace boost::interprocess;
+
 
 constexpr double ball_radius = 0.01;
 constexpr double cylinder_radius = 0.002;
 constexpr double downsample_radius = 0.005;
 
-Eigen::Vector3f getNormal(const pcl::PointCloud<pcl::PointXYZ>::Ptr cloud)
+Eigen::Vector3f getNormal(const pcl::PointCloud<pcl::PointXYZ> cloud)
 {
-  Eigen::MatrixXd lhs (cloud->size(), 3);
-  Eigen::VectorXd rhs (cloud->size());
-  for (size_t i = 0; i < cloud->size(); ++i)
+  Eigen::MatrixXd lhs (cloud.size(), 3);
+  Eigen::VectorXd rhs (cloud.size());
+  for (size_t i = 0; i < cloud.size(); ++i)
   {
-    const auto& pt = cloud->points[i];
+    const auto& pt = cloud.points[i];
     lhs(i, 0) = pt.x;
     lhs(i, 1) = pt.y;
     lhs(i, 2) = 1.0;
@@ -118,8 +123,15 @@ void process(pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud,pcl::PointCloud<pcl::P
 {
     pcl::search::KdTree<pcl::PointXYZ>::Ptr tree (new pcl::search::KdTree<pcl::PointXYZ>);
     pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_bw (new pcl::PointCloud<pcl::PointXYZ>);
+
     pcl::copyPointCloud(*cloud,*cloud_bw);
+
+    std::cout<<"XYZ pointcloud created."<<std::endl;
+    pcl::search::KdTree<pcl::PointXYZ>::Ptr tree_temp (new pcl::search::KdTree<pcl::PointXYZ>);
     tree->setInputCloud (cloud_bw);
+
+    std::cout<<"Tree created."<<std::endl;
+   
     unsigned long long int good_centers = 0;
     for(int i=0;i<centroids->points.size();i++)
     {
@@ -145,11 +157,14 @@ void process(pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud,pcl::PointCloud<pcl::P
             pt_temp.z = cloud->points[ids].z;
             points->points.push_back(pt_temp);
         }
+
+        auto points_downsampled = PCLUtilities::downsample<pcl::PointXYZ>(points,0.001);
+
         int good_points = 0;
 #if 1
         if(indices.size()>10)
         {
-            Vector3f normal = getNormal(points);
+            Vector3f normal = getNormal(points_downsampled);
             Vector3f norm_pt;
             norm_pt<<pt.x,pt.y,pt.z;
             Vector3f pt_pro;
@@ -168,8 +183,8 @@ void process(pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud,pcl::PointCloud<pcl::P
                 // std::cout<<"Distance To Normal: "<<distance_to_normal<<" Distance to normal Pt: "<<(pt_loc-norm_pt).norm()<<std::endl;
                 if(distance_to_normal<cylinder_radius)
                 {
-                    pt_pro+= (1.0-distance_to_normal/cylinder_radius) * projected_points;
-                    weights += (1.0-distance_to_normal/cylinder_radius);
+                    pt_pro+= projected_points;
+                    weights += (1.0);
                     // cout<<"Points: "<<pt_loc<<" Projected Points: "<<projected_points<<" Normal: "<<normal<<endl;
                     good_points++;
 
@@ -200,6 +215,13 @@ void process(pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud,pcl::PointCloud<pcl::P
 /**
  * @brief The data collection class deals with collecting pointclouds, color and depth images.
  */
+
+struct shm_remove
+{
+    shm_remove() { shared_memory_object::remove("shared_memory"); }
+    ~shm_remove(){ shared_memory_object::remove("shared_memory"); }
+} remover;
+
 class PointcloudFusion
 {
 	public:
@@ -263,6 +285,8 @@ PointcloudFusion::PointcloudFusion(ros::NodeHandle& nh,const std::string& fusion
 }
 
 int counter = 0;
+
+
 
 void PointcloudFusion::onReceivedPointCloud(const sensor_msgs::PointCloud2Ptr& cloud_in)
 {
@@ -408,21 +432,43 @@ bool PointcloudFusion::filterAndFuse(std_srvs::TriggerRequest& req, std_srvs::Tr
     auto processed_cloud = PCLUtilities::downsample<pcl::PointXYZRGB>(combined_pcl_ptr_,0.005);
     std::cout<<combined_pcl_ptr_->points.size()<<std::endl;
     std::cout<<processed_cloud.points.size()<<std::endl;
-    PCLUtilities::publishPointCloud<pcl::PointXYZRGB>(processed_cloud,processed_cloud_);
+    // PCLUtilities::publishPointCloud<pcl::PointXYZRGB>(processed_cloud,processed_cloud_);
     combined_pcl_ptr_->height = 1;
     combined_pcl_ptr_->width = combined_pcl_ptr_->points.size();
     processed_cloud.height = 1;
     processed_cloud.width = processed_cloud.points.size();
     pcl::PointCloud<pcl::PointXYZRGB>::Ptr processed_new(new pcl::PointCloud<pcl::PointXYZRGB>);
-    process(combined_pcl_ptr_,processed_cloud.makeShared(),processed_new);
-    processed_new->height = 1;
-    processed_new->width = processed_new->points.size();
-    std::cout<<"Processed Cloud: "<<processed_new->points.size()<<std::endl;
+    std::cout<<"Going to process the clouds."<<std::endl;
+    // process(combined_pcl_ptr_,processed_cloud.makeShared(),processed_new);
+    // processed_new->height = 1;
+    // processed_new->width = processed_new->points.size();
+    // std::cout<<"Processed Cloud: "<<processed_new->points.size()<<std::endl;
 
 
-    // pcl::io::savePCDFileASCII ("/home/rflin/Desktop/test.pcd",*combined_pcl_ptr_);
+    MatrixXf m = combined_pcl_ptr_->getMatrixXfMap().transpose();
+    std::cout<<m.rows()<<" "<<m.cols()<<std::endl;
+
+    unsigned long long int cloud_size = m.rows()*m.cols();
+
+    std::cout<<cloud_size<<std::endl;
+
+    shared_memory_object shm_obj
+        (create_only                  //only create
+         ,"shared_memory"              //name
+         ,read_write                   //read-write mode
+        );
+
+    shm_obj.truncate(cloud_size*sizeof(float));
+    mapped_region region(shm_obj, read_write);
+
+    memcpy(region.get_address(),m.data(),region.get_size());
+
+    std::cout<<"Memory Mapping Done."<<std::endl;
+
+
+    pcl::io::savePCDFileASCII ("/home/rflin/Desktop/test.pcd",*combined_pcl_ptr_);
     pcl::io::savePCDFileASCII ("/home/rflin/Desktop/test_downsampled.pcd",processed_cloud);
-    pcl::io::savePCDFileASCII ("/home/rflin/Desktop/test_filtered.pcd",*processed_new);
+    // pcl::io::savePCDFileASCII ("/home/rflin/Desktop/test_filtered.pcd",*processed_new);
     std::cout<<"Fusion Done..."<<std::endl;
     res.success=true;
     return true;
@@ -439,6 +485,9 @@ int main(int argc, char** argv)
 	pnh.param("bounding_box", bounding_box, std::vector<double>());
 	PointcloudFusion dc(pnh,fusion_frame,bounding_box,directory_name); 
 	ros::Rate loop_rate(11);
+
+
+
 	while(ros::ok())
 	{
 		ros::spinOnce();

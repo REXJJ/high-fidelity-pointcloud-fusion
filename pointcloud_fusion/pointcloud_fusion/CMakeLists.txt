@@ -244,7 +244,7 @@ endif()
 function(create_exe firstfile )
 add_executable(${firstfile} src/${firstfile}.cpp)
 target_link_libraries(${firstfile} ${catkin_LIBRARIES})
-target_link_libraries(${firstfile} ${PCL_LIBRARIES} ${OpenCV_LIBS})
+target_link_libraries(${firstfile} ${PCL_LIBRARIES} ${OpenCV_LIBS} -lrt)
 endfunction()
 
 create_exe(pointcloud_fusion)
