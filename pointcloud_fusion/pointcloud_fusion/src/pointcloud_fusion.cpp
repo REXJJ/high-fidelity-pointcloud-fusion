@@ -228,7 +228,6 @@ class PointcloudFusion
 {
 	public:
 		PointcloudFusion(ros::NodeHandle& nh, const std::string& tsdf_frame,std::vector<double>& box,string directory_name);
-        void makeThreads();
 
 	private:
         //Subscribers
@@ -251,7 +250,6 @@ class PointcloudFusion
 		bool stop(std_srvs::TriggerRequest& req, std_srvs::TriggerResponse& res);
 		bool filterAndFuse(std_srvs::TriggerRequest& req, std_srvs::TriggerResponse& res);
         void fuse();
-        vector<pcl::PointCloud<pcl::PointXYZRGB>> extractClouds();
         //Objects
 		std::string fusion_frame_;
 		std::string pointcloud_frame_;
@@ -288,15 +286,6 @@ PointcloudFusion::PointcloudFusion(ros::NodeHandle& nh,const std::string& fusion
     display_ = false;
     combined_pcl_ptr_.reset(new pcl::PointCloud<pcl::PointXYZRGB>);
     threads_.push_back(std::thread(&PointcloudFusion::fuse, this));
-    // pointcloud_frame_ = "map";
-}
-
-int counter = 0;
-
-void PointcloudFusion::makeThreads()
-{
-    threads_.push_back(std::thread(&PointcloudFusion::fuse, this));
-    // for (auto& t: threads_) t.join();
 }
 
 void PointcloudFusion::fuse()
@@ -315,7 +304,7 @@ void PointcloudFusion::fuse()
         mtx_.unlock();
         if(received_data==false)
         {
-            sleep(1);
+            sleep(1);//TODO: Conditional Wait.
             continue;
         }
         pcl::PCLPointCloud2 pcl_pc2;
@@ -330,7 +319,7 @@ void PointcloudFusion::fuse()
         pcl::PointCloud<pcl::PointXYZRGB> cloud_transformed;
         pcl::transformPointCloud (cloud_temp, cloud_transformed, fusion_frame_T_camera);
         for(auto point:cloud_transformed.points)
-            if(point.z>0.0)
+            if(point.z>0.0)//TODO: Remove hardcoded values.
                 combined_pcl_ptr_->points.push_back(point);        
         std::cout<<"Pointcloud received."<<std::endl;
         std::cout<<cloud_in->header<<std::endl;
@@ -429,42 +418,10 @@ bool PointcloudFusion::stop(std_srvs::TriggerRequest& req, std_srvs::TriggerResp
 	return true;
 }
 
-vector<pcl::PointCloud<pcl::PointXYZRGB>> PointcloudFusion::extractClouds()
-{
-    vector<pcl::PointCloud<pcl::PointXYZRGB>> clouds_extracted;
-    int processed = 0;
-    int total = clouds_.size();
-    while(clouds_.size())
-    {
-        auto it = clouds_.begin();
-        auto cloud_sensor_msg = it->second;
-        auto transformation = it->first;
-        pcl::PointCloud<pcl::PointXYZRGB> cloud_temp;
-        pcl::PCLPointCloud2 pcl_pc2;
-        pcl_conversions::toPCL(*cloud_sensor_msg, pcl_pc2);
-        cloud_sensor_msg.reset();
-        it->second.reset();
-        clouds_.erase(it);
-        pcl::PointCloud<pcl::PointXYZRGB> cloud;
-        cloud = PCLUtilities::pointCloud2ToPclXYZRGB(pcl_pc2);
-        for(auto point:cloud.points)
-            if(point.z<2.0)
-                cloud_temp.points.push_back(point);
-        pcl::PointCloud<pcl::PointXYZRGB> cloud_transformed;
-        pcl::transformPointCloud (cloud_temp, cloud_transformed, transformation);
-        std::cout<<cloud_transformed.points.size()<<std::endl;
-        clouds_extracted.push_back(cloud_transformed);
-        std::cout<<"Processing cloud number: "<<processed++<<" out of "<<total<<std::endl;
-    }
-    clouds_.clear();
-    return clouds_extracted;
-}
-
-
 bool PointcloudFusion::filterAndFuse(std_srvs::TriggerRequest& req, std_srvs::TriggerResponse& res)
 {
     bool merging_finished = false;
-    while(ros::ok()&&merging_finished==false)
+    while(ros::ok()&&merging_finished==false)//TODO: Busy waiting use conditional wait.
     {
         mtx_.lock();
         if(clouds_.size()==0)
@@ -472,7 +429,6 @@ bool PointcloudFusion::filterAndFuse(std_srvs::TriggerRequest& req, std_srvs::Tr
         mtx_.unlock();
         sleep(1);
     }
-
     std::cout<<combined_pcl_ptr_->points.size()<<std::endl;
     auto processed_cloud = PCLUtilities::downsample<pcl::PointXYZRGB>(combined_pcl_ptr_,0.005);
     std::cout<<combined_pcl_ptr_->points.size()<<std::endl;
@@ -484,7 +440,6 @@ bool PointcloudFusion::filterAndFuse(std_srvs::TriggerRequest& req, std_srvs::Tr
     processed_cloud.width = processed_cloud.points.size();
     pcl::PointCloud<pcl::PointXYZRGB>::Ptr processed_new(new pcl::PointCloud<pcl::PointXYZRGB>);
     std::cout<<"Going to process the clouds."<<std::endl;
-
 #if 1
     process(combined_pcl_ptr_,processed_cloud.makeShared(),processed_new);
     processed_new->height = 1;
@@ -493,25 +448,18 @@ bool PointcloudFusion::filterAndFuse(std_srvs::TriggerRequest& req, std_srvs::Tr
 #else
     MatrixXf m = combined_pcl_ptr_->getMatrixXfMap().transpose();
     std::cout<<m.rows()<<" "<<m.cols()<<std::endl;
-
     unsigned long long int cloud_size = m.rows()*m.cols();
-
     std::cout<<cloud_size<<std::endl;
-
     shared_memory_object shm_obj
         (create_only                  //only create
          ,"shared_memory"              //name
          ,read_write                   //read-write mode
         );
-
     shm_obj.truncate(cloud_size*sizeof(float));
     mapped_region region(shm_obj, read_write);
-
     memcpy(region.get_address(),m.data(),region.get_size());
-
     std::cout<<"Memory Mapping Done."<<std::endl;
 #endif
-
 
     // pcl::io::savePCDFileASCII ("/home/rflin/Desktop/test.pcd",*combined_pcl_ptr_);
     pcl::io::savePCDFileASCII ("/home/rflin/Desktop/test_downsampled.pcd",processed_cloud);
