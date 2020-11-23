@@ -61,6 +61,8 @@
 //STANDARD HEADERS
 /************************************************/
 #include <bits/stdc++.h>
+#include <thread>
+#include <mutex>
 
 /*************************************************/
 //Other Libraries
@@ -84,7 +86,7 @@ using namespace boost::interprocess;
 
 
 constexpr double ball_radius = 0.01;
-constexpr double cylinder_radius = 0.002;
+constexpr double cylinder_radius = 0.001;
 constexpr double downsample_radius = 0.005;
 
 Eigen::Vector3f getNormal(const pcl::PointCloud<pcl::PointXYZ> cloud)
@@ -226,6 +228,7 @@ class PointcloudFusion
 {
 	public:
 		PointcloudFusion(ros::NodeHandle& nh, const std::string& tsdf_frame,std::vector<double>& box,string directory_name);
+        void makeThreads();
 
 	private:
         //Subscribers
@@ -247,12 +250,13 @@ class PointcloudFusion
 		bool start(std_srvs::TriggerRequest& req, std_srvs::TriggerResponse& res);
 		bool stop(std_srvs::TriggerRequest& req, std_srvs::TriggerResponse& res);
 		bool filterAndFuse(std_srvs::TriggerRequest& req, std_srvs::TriggerResponse& res);
+        void fuse();
         vector<pcl::PointCloud<pcl::PointXYZRGB>> extractClouds();
         //Objects
 		std::string fusion_frame_;
 		std::string pointcloud_frame_;
 		string directory_name_;
-        std::vector<std::pair<Eigen::Affine3d,sensor_msgs::PointCloud2Ptr>> clouds_;
+        std::deque<std::pair<Eigen::Affine3d,sensor_msgs::PointCloud2Ptr>> clouds_;
         pcl::PointCloud<pcl::PointXYZRGB> combined_pcl_;
         pcl::PointCloud<pcl::PointXYZRGB>::Ptr combined_pcl_ptr_;
 		pcl::PointCloud<pcl::PointXYZRGB> combined_pcl_display_;
@@ -262,6 +266,8 @@ class PointcloudFusion
         bool display_;
         //Publishers
 		ros::Publisher processed_cloud_;
+        std::vector<std::thread> threads_;
+        std::mutex mtx_;           
 };
 
 PointcloudFusion::PointcloudFusion(ros::NodeHandle& nh,const std::string& fusion_frame,vector<double>& box,string directory_name)
@@ -281,12 +287,55 @@ PointcloudFusion::PointcloudFusion(ros::NodeHandle& nh,const std::string& fusion
     cloud_subscription_started_ = false;
     display_ = false;
     combined_pcl_ptr_.reset(new pcl::PointCloud<pcl::PointXYZRGB>);
+    threads_.push_back(std::thread(&PointcloudFusion::fuse, this));
     // pointcloud_frame_ = "map";
 }
 
 int counter = 0;
 
+void PointcloudFusion::makeThreads()
+{
+    threads_.push_back(std::thread(&PointcloudFusion::fuse, this));
+    // for (auto& t: threads_) t.join();
+}
 
+void PointcloudFusion::fuse()
+{
+    while(ros::ok())
+    {
+        std::pair<Eigen::Affine3d,sensor_msgs::PointCloud2Ptr> cloud_data;
+        bool received_data = false;
+        mtx_.lock();
+        if(clouds_.size()!=0)
+        {
+            cloud_data = clouds_[0];
+            clouds_.pop_front(); 
+            received_data = true;
+        }
+        mtx_.unlock();
+        if(received_data==false)
+        {
+            sleep(1);
+            continue;
+        }
+        pcl::PCLPointCloud2 pcl_pc2;
+        auto cloud_in = cloud_data.second;
+        auto fusion_frame_T_camera = cloud_data.first;
+        pcl_conversions::toPCL(*cloud_in, pcl_pc2); 
+        pcl::PointCloud<pcl::PointXYZRGB> cloud_temp;
+        auto cloud = PCLUtilities::pointCloud2ToPclXYZRGB(pcl_pc2);
+        for(auto point:cloud.points)
+            if(point.z<2.0)
+                cloud_temp.points.push_back(point);
+        pcl::PointCloud<pcl::PointXYZRGB> cloud_transformed;
+        pcl::transformPointCloud (cloud_temp, cloud_transformed, fusion_frame_T_camera);
+        for(auto point:cloud_transformed.points)
+            if(point.z>0.0)
+                combined_pcl_ptr_->points.push_back(point);        
+        std::cout<<"Pointcloud received."<<std::endl;
+        std::cout<<cloud_in->header<<std::endl;
+    }
+}
 
 void PointcloudFusion::onReceivedPointCloud(const sensor_msgs::PointCloud2Ptr& cloud_in)
 {
@@ -305,22 +354,9 @@ void PointcloudFusion::onReceivedPointCloud(const sensor_msgs::PointCloud2Ptr& c
             ROS_WARN("%s", ex.what());
             return;
         }
-        pcl::PCLPointCloud2 pcl_pc2;
-        pcl_conversions::toPCL(*cloud_in, pcl_pc2); 
-        pcl::PointCloud<pcl::PointXYZRGB> cloud_temp;
-        auto cloud = PCLUtilities::pointCloud2ToPclXYZRGB(pcl_pc2);
-        for(auto point:cloud.points)
-            if(point.z<2.0)
-                cloud_temp.points.push_back(point);
-        pcl::PointCloud<pcl::PointXYZRGB> cloud_transformed;
-        pcl::transformPointCloud (cloud_temp, cloud_transformed, fusion_frame_T_camera);
-        for(auto point:cloud_transformed.points)
-            if(point.z>0.0)
-                combined_pcl_ptr_->points.push_back(point);        
-        // clouds_.push_back(make_pair(fusion_frame_T_camera,cloud_in));
-        // cloud_in.reset();
-        std::cout<<"Pointcloud received."<<std::endl;
-        std::cout<<cloud_in->header<<std::endl;
+        mtx_.lock();
+        clouds_.push_back(make_pair(fusion_frame_T_camera,cloud_in));
+        mtx_.unlock();
         static int counter = 0;
         std::cout<<counter++<<std::endl;
     }
@@ -427,6 +463,15 @@ vector<pcl::PointCloud<pcl::PointXYZRGB>> PointcloudFusion::extractClouds()
 
 bool PointcloudFusion::filterAndFuse(std_srvs::TriggerRequest& req, std_srvs::TriggerResponse& res)
 {
+    bool merging_finished = false;
+    while(ros::ok()&&merging_finished==false)
+    {
+        mtx_.lock();
+        if(clouds_.size()==0)
+            merging_finished = true;
+        mtx_.unlock();
+        sleep(1);
+    }
 
     std::cout<<combined_pcl_ptr_->points.size()<<std::endl;
     auto processed_cloud = PCLUtilities::downsample<pcl::PointXYZRGB>(combined_pcl_ptr_,0.005);
@@ -439,12 +484,13 @@ bool PointcloudFusion::filterAndFuse(std_srvs::TriggerRequest& req, std_srvs::Tr
     processed_cloud.width = processed_cloud.points.size();
     pcl::PointCloud<pcl::PointXYZRGB>::Ptr processed_new(new pcl::PointCloud<pcl::PointXYZRGB>);
     std::cout<<"Going to process the clouds."<<std::endl;
-    // process(combined_pcl_ptr_,processed_cloud.makeShared(),processed_new);
-    // processed_new->height = 1;
-    // processed_new->width = processed_new->points.size();
-    // std::cout<<"Processed Cloud: "<<processed_new->points.size()<<std::endl;
 
-
+#if 1
+    process(combined_pcl_ptr_,processed_cloud.makeShared(),processed_new);
+    processed_new->height = 1;
+    processed_new->width = processed_new->points.size();
+    std::cout<<"Processed Cloud: "<<processed_new->points.size()<<std::endl;
+#else
     MatrixXf m = combined_pcl_ptr_->getMatrixXfMap().transpose();
     std::cout<<m.rows()<<" "<<m.cols()<<std::endl;
 
@@ -464,11 +510,12 @@ bool PointcloudFusion::filterAndFuse(std_srvs::TriggerRequest& req, std_srvs::Tr
     memcpy(region.get_address(),m.data(),region.get_size());
 
     std::cout<<"Memory Mapping Done."<<std::endl;
+#endif
 
 
-    pcl::io::savePCDFileASCII ("/home/rflin/Desktop/test.pcd",*combined_pcl_ptr_);
+    // pcl::io::savePCDFileASCII ("/home/rflin/Desktop/test.pcd",*combined_pcl_ptr_);
     pcl::io::savePCDFileASCII ("/home/rflin/Desktop/test_downsampled.pcd",processed_cloud);
-    // pcl::io::savePCDFileASCII ("/home/rflin/Desktop/test_filtered.pcd",*processed_new);
+    pcl::io::savePCDFileASCII ("/home/rflin/Desktop/test_filtered.pcd",*processed_new);
     std::cout<<"Fusion Done..."<<std::endl;
     res.success=true;
     return true;
@@ -484,10 +531,7 @@ int main(int argc, char** argv)
 	std::vector<double> bounding_box;
 	pnh.param("bounding_box", bounding_box, std::vector<double>());
 	PointcloudFusion dc(pnh,fusion_frame,bounding_box,directory_name); 
-	ros::Rate loop_rate(11);
-
-
-
+	ros::Rate loop_rate(31);
 	while(ros::ok())
 	{
 		ros::spinOnce();
