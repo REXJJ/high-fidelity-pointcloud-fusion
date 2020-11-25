@@ -63,6 +63,7 @@
 #include <bits/stdc++.h>
 #include <thread>
 #include <mutex>
+#include <condition_variable>
 
 /*************************************************/
 //Other Libraries
@@ -79,6 +80,7 @@
 //LOCAL HEADERS
 /***********************************************/
 #include "pcl_ros_utilities/pcl_ros_utilities.hpp"
+#include "utilities/Volume.hpp"
 
 using namespace std;
 using namespace pcl;
@@ -163,7 +165,6 @@ void process(pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud,pcl::PointCloud<pcl::P
         auto points_downsampled = PCLUtilities::downsample<pcl::PointXYZ>(points,0.001);
 
         int good_points = 0;
-#if 1
         if(indices.size()>10)
         {
             Vector3f normal = getNormal(points_downsampled);
@@ -208,7 +209,6 @@ void process(pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud,pcl::PointCloud<pcl::P
             good_centers++;
             processed->points.push_back(pt_processed); 
         }
-#endif
     }
     processed->height = 1;
     processed->width = good_centers;
@@ -248,8 +248,8 @@ class PointcloudFusion
 		bool reset(std_srvs::TriggerRequest& req, std_srvs::TriggerResponse& res);
 		bool start(std_srvs::TriggerRequest& req, std_srvs::TriggerResponse& res);
 		bool stop(std_srvs::TriggerRequest& req, std_srvs::TriggerResponse& res);
-		bool filterAndFuse(std_srvs::TriggerRequest& req, std_srvs::TriggerResponse& res);
-        void fuse();
+		bool getFusedCloud(std_srvs::TriggerRequest& req, std_srvs::TriggerResponse& res);
+        void fuseAndFilter();
         //Objects
 		std::string fusion_frame_;
 		std::string pointcloud_frame_;
@@ -266,6 +266,7 @@ class PointcloudFusion
 		ros::Publisher processed_cloud_;
         std::vector<std::thread> threads_;
         std::mutex mtx_;           
+        std::condition_variable cv_;
 };
 
 PointcloudFusion::PointcloudFusion(ros::NodeHandle& nh,const std::string& fusion_frame,vector<double>& box,string directory_name)
@@ -279,16 +280,16 @@ PointcloudFusion::PointcloudFusion(ros::NodeHandle& nh,const std::string& fusion
 	reset_service_= nh.advertiseService("reset",&PointcloudFusion::reset, this);
 	start_service_= nh.advertiseService("start",&PointcloudFusion::start, this);
 	stop_service_= nh.advertiseService("stop",&PointcloudFusion::stop, this);
-    process_clouds_ = nh.advertiseService("process",&PointcloudFusion::filterAndFuse, this);
+    process_clouds_ = nh.advertiseService("process",&PointcloudFusion::getFusedCloud, this);
 	processed_cloud_ = nh.advertise<sensor_msgs::PointCloud2>("pcl_fusion_node/processed_cloud",1);
     start_ = false;
     cloud_subscription_started_ = false;
     display_ = false;
     combined_pcl_ptr_.reset(new pcl::PointCloud<pcl::PointXYZRGB>);
-    threads_.push_back(std::thread(&PointcloudFusion::fuse, this));
+    threads_.push_back(std::thread(&PointcloudFusion::fuseAndFilter, this));
 }
 
-void PointcloudFusion::fuse()
+void PointcloudFusion::fuseAndFilter()
 {
     while(ros::ok())
     {
@@ -418,7 +419,7 @@ bool PointcloudFusion::stop(std_srvs::TriggerRequest& req, std_srvs::TriggerResp
 	return true;
 }
 
-bool PointcloudFusion::filterAndFuse(std_srvs::TriggerRequest& req, std_srvs::TriggerResponse& res)
+bool PointcloudFusion::getFusedCloud(std_srvs::TriggerRequest& req, std_srvs::TriggerResponse& res)
 {
     bool merging_finished = false;
     while(ros::ok()&&merging_finished==false)//TODO: Busy waiting use conditional wait.
