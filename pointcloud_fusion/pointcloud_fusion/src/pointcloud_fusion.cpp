@@ -274,7 +274,7 @@ PointcloudFusion::PointcloudFusion(ros::NodeHandle& nh,const std::string& fusion
 	, bounding_box_(box)
 	, directory_name_(directory_name)
 {  // Subscribe to point cloud
-    point_cloud_sub_ = nh.subscribe("input_point_cloud", 1, &PointcloudFusion::onReceivedPointCloud,this);//TODO: Change the queue size
+    point_cloud_sub_ = nh.subscribe("input_point_cloud", 100, &PointcloudFusion::onReceivedPointCloud,this);
 	// point_cloud_sub_ = nh.subscribe("input_point_cloud", 1, &PointcloudFusion::onReceivedPointCloudDisplay,this);
 	reset_service_= nh.advertiseService("reset",&PointcloudFusion::reset, this);
 	start_service_= nh.advertiseService("start",&PointcloudFusion::start, this);
