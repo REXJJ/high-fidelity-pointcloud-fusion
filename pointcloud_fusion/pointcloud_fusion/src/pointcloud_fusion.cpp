@@ -315,12 +315,12 @@ void PointcloudFusion::fuseAndFilter()
         pcl::PointCloud<pcl::PointXYZRGB> cloud_temp;
         auto cloud = PCLUtilities::pointCloud2ToPclXYZRGB(pcl_pc2);
         for(auto point:cloud.points)
-            if(point.z<2.0)
+            if(point.z<2.0&&point.z>0.28)
                 cloud_temp.points.push_back(point);
         pcl::PointCloud<pcl::PointXYZRGB> cloud_transformed;
         pcl::transformPointCloud (cloud_temp, cloud_transformed, fusion_frame_T_camera);
         for(auto point:cloud_transformed.points)
-            if(point.z>0.0)//TODO: Remove hardcoded values.
+            if(point.z>0.0&&point.x>0.94&&point.x<1.33&&point.y>-0.38&&point.y<0.38)//TODO: Remove hardcoded values.
                 combined_pcl_ptr_->points.push_back(point);        
         std::cout<<"Pointcloud received."<<std::endl;
         std::cout<<cloud_in->header<<std::endl;
@@ -337,6 +337,7 @@ void PointcloudFusion::onReceivedPointCloud(const sensor_msgs::PointCloud2Ptr& c
         try
         {
             geometry_msgs::TransformStamped transform_fusion_frame_T_camera = tf_buffer_.lookupTransform(fusion_frame_, cloud_in->header.frame_id,ros::Time(0));
+            std::cout<<transform_fusion_frame_T_camera.header.stamp<<" --- "<<cloud_in->header.stamp<<" : "<<ros::Time::now()<<std::endl;
             fusion_frame_T_camera = tf2::transformToEigen(transform_fusion_frame_T_camera); 
         }
         catch (tf2::TransformException& ex)
@@ -441,7 +442,7 @@ bool PointcloudFusion::getFusedCloud(std_srvs::TriggerRequest& req, std_srvs::Tr
     processed_cloud.width = processed_cloud.points.size();
     pcl::PointCloud<pcl::PointXYZRGB>::Ptr processed_new(new pcl::PointCloud<pcl::PointXYZRGB>);
     std::cout<<"Going to process the clouds."<<std::endl;
-#if 1
+#if 0
     process(combined_pcl_ptr_,processed_cloud.makeShared(),processed_new);
     processed_new->height = 1;
     processed_new->width = processed_new->points.size();
@@ -463,8 +464,8 @@ bool PointcloudFusion::getFusedCloud(std_srvs::TriggerRequest& req, std_srvs::Tr
 #endif
 
     // pcl::io::savePCDFileASCII ("/home/rflin/Desktop/test.pcd",*combined_pcl_ptr_);
-    pcl::io::savePCDFileASCII ("/home/rflin/Desktop/test_downsampled.pcd",processed_cloud);
-    pcl::io::savePCDFileASCII ("/home/rflin/Desktop/test_filtered.pcd",*processed_new);
+    // pcl::io::savePCDFileASCII ("/home/rflin/Desktop/test_downsampled.pcd",processed_cloud);
+    // pcl::io::savePCDFileASCII ("/home/rflin/Desktop/test_filtered.pcd",*processed_new);
     std::cout<<"Fusion Done..."<<std::endl;
     res.success=true;
     return true;
