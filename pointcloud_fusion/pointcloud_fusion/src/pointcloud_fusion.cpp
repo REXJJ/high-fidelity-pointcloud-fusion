@@ -289,65 +289,60 @@ PointcloudFusion::PointcloudFusion(ros::NodeHandle& nh,const std::string& fusion
     cloud_subscription_started_ = false;
     display_ = false;
     combined_pcl_ptr_.reset(new pcl::PointCloud<pcl::PointXYZRGB>);
-    threads_.push_back(std::thread(&PointcloudFusion::fuseAndFilter, this));
+    threads_.push_back(std::thread(&PointcloudFusion::estimateNormalsAndFuse, this));
 }
 
-void PointCloudfusion::estimateNormalsAndFuse()
+void PointcloudFusion::estimateNormalsAndFuse()
 {
+    int counter = 0;
+    while(ros::ok())
+    {
+        std::pair<Eigen::Affine3d,sensor_msgs::PointCloud2Ptr> cloud_data;
+        bool received_data = false;
+        mtx_.lock();
+        if(clouds_.size()!=0)
+        {
+            cloud_data = clouds_[0];
+            clouds_.pop_front(); 
+            received_data = true;
+        }
+        mtx_.unlock();
+        if(received_data==false)
+        {
+            sleep(1);//TODO: Conditional Wait.
+            continue;
+        }
+        pcl::PCLPointCloud2 pcl_pc2;
+        auto cloud_in = cloud_data.second;
+        auto fusion_frame_T_camera = cloud_data.first;
+        pcl_conversions::toPCL(*cloud_in, pcl_pc2); 
+        pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_temp (new pcl::PointCloud<pcl::PointXYZ>);
+        auto cloud = PCLUtilities::pointCloud2ToPclXYZRGB(pcl_pc2);
+        auto processed_cloud = PCLUtilities::downsample<pcl::PointXYZRGB>(cloud,0.01);
+        for(auto point:processed_cloud.points)
+            if(point.z<2.0&&point.z>0.28)
+            {
+                pcl::PointXYZ pt;
+                pt.x = point.x;
+                pt.y = point.y;
+                pt.z = point.z;
+                cloud_temp->points.push_back(pt);
+            }
+        pcl::search::KdTree<pcl::PointXYZ>::Ptr tree(new pcl::search::KdTree<pcl::PointXYZ>);
+        tree->setInputCloud(cloud_temp);
+        pcl::NormalEstimationOMP<pcl::PointXYZ, pcl::PointNormal> normalEstimator;
+        normalEstimator.setInputCloud(cloud_temp);
+        normalEstimator.setSearchMethod(tree);
+        normalEstimator.setRadiusSearch(0.01);
+        normalEstimator.setViewPoint(0,0,0);
+        pcl::PointCloud<pcl::PointNormal>::Ptr cloud_normals(new pcl::PointCloud<pcl::PointNormal>);
+        normalEstimator.compute(*cloud_normals);
 
-    // while(ros::ok())
-    // {
-    //     std::pair<Eigen::Affine3d,sensor_msgs::PointCloud2Ptr> cloud_data;
-    //     bool received_data = false;
-    //     mtx_.lock();
-    //     if(clouds_.size()!=0)
-    //     {
-    //         cloud_data = clouds_[0];
-    //         clouds_.pop_front(); 
-    //         received_data = true;
-    //     }
-    //     mtx_.unlock();
-    //     if(received_data==false)
-    //     {
-    //         sleep(1);//TODO: Conditional Wait.
-    //         continue;
-    //     }
-    //     pcl::PCLPointCloud2 pcl_pc2;
-    //     auto cloud_in = cloud_data.second;
-    //     auto fusion_frame_T_camera = cloud_data.first;
-    //     pcl_conversions::toPCL(*cloud_in, pcl_pc2); 
-    //     pcl::PointCloud<pcl::PointXYZRGB> cloud_temp;
-    //     auto cloud = PCLUtilities::pointCloud2ToPclXYZRGB(pcl_pc2);
-    //     for(auto point:cloud.points)
-    //         if(point.z<2.0&&point.z>0.28)
-    //             cloud_temp.points.push_back(point);
-    //     pcl::PointCloud<pcl::PointXYZRGB> cloud_transformed;
-    //     pcl::transformPointCloud (cloud_temp, cloud_transformed, fusion_frame_T_camera);
-    //     for(int i=0;i<cloud_transformed.points.size();i++)
-    //     {
-    //         pcl::PointXYZ pt;
-    //         pcl::PointXYZRGB point = cloud_transformed.points[i];
-    //         pt.x = point.x;
-    //         pt.y = point.y;
-    //         pt.z = point.z;
-    //         Vector3f normal = {n[0],n[1],n[2]};
-    //         Vector3f normal_transformed = fusion_frame_T_camera*normal;
-            
-    //     }    
-    //     std::cout<<"Pointcloud received."<<std::endl;
-    //     std::cout<<cloud_in->header<<std::endl;
-    // }
-
-
-    // pcl::search::KdTree<pcl::PointXYZ>::Ptr tree(new pcl::search::KdTree<pcl::PointXYZ>);
-    // tree->setInputCloud(cloud);
-    // pcl::NormalEstimation<pcl::PointXYZ, pcl::Normal> normalEstimator;
-    // normalEstimator.setInputCloud(cloud);
-    // normalEstimator.setSearchMethod(tree);
-    // normalEstimator.setRadiusSearch(0.01);
-    // normalEstimator.setViewPoint(0,0,0);
-    // pcl::PointCloud<pcl::Normal>::Ptr cloud_normals(new pcl::PointCloud<pcl::Normal>);
-    // normalEstimator.compute(*cloud_normals);
+        pcl::PointCloud<pcl::PointNormal> cloud_transformed;
+        pcl::transformPointCloudWithNormals(*cloud_normals,cloud_transformed, fusion_frame_T_camera);
+        std::cout<<"Pointcloud processed."<<std::endl;
+        std::cout<<counter++<<std::endl;
+    }
 }
 
 void PointcloudFusion::fuseAndFilter()
@@ -399,7 +394,7 @@ void PointcloudFusion::onReceivedPointCloud(const sensor_msgs::PointCloud2Ptr& c
         try
         {
             geometry_msgs::TransformStamped transform_fusion_frame_T_camera = tf_buffer_.lookupTransform(fusion_frame_, cloud_in->header.frame_id,ros::Time(0));
-            std::cout<<transform_fusion_frame_T_camera.header.stamp<<" --- "<<cloud_in->header.stamp<<" : "<<ros::Time::now()<<std::endl;
+            // std::cout<<transform_fusion_frame_T_camera.header.stamp<<" --- "<<cloud_in->header.stamp<<" : "<<ros::Time::now()<<std::endl;
             fusion_frame_T_camera = tf2::transformToEigen(transform_fusion_frame_T_camera); 
         }
         catch (tf2::TransformException& ex)
@@ -410,8 +405,8 @@ void PointcloudFusion::onReceivedPointCloud(const sensor_msgs::PointCloud2Ptr& c
         mtx_.lock();
         clouds_.push_back(make_pair(fusion_frame_T_camera,cloud_in));
         mtx_.unlock();
-        static int counter = 0;
-        std::cout<<counter++<<std::endl;
+        // static int counter = 0;
+        // std::cout<<counter++<<std::endl;
     }
 }
 
