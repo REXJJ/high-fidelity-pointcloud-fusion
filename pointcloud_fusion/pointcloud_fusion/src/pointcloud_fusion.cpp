@@ -250,6 +250,7 @@ class PointcloudFusion
 		bool stop(std_srvs::TriggerRequest& req, std_srvs::TriggerResponse& res);
 		bool getFusedCloud(std_srvs::TriggerRequest& req, std_srvs::TriggerResponse& res);
         void fuseAndFilter();
+        void estimateNormalsAndFuse();
         //Objects
 		std::string fusion_frame_;
 		std::string pointcloud_frame_;
@@ -257,7 +258,9 @@ class PointcloudFusion
         std::deque<std::pair<Eigen::Affine3d,sensor_msgs::PointCloud2Ptr>> clouds_;
         pcl::PointCloud<pcl::PointXYZRGB> combined_pcl_;
         pcl::PointCloud<pcl::PointXYZRGB>::Ptr combined_pcl_ptr_;
-		pcl::PointCloud<pcl::PointXYZRGB> combined_pcl_display_;
+        pcl::PointCloud<pcl::PointXYZRGB> combined_pcl_display_;
+        pcl::PointCloud<pcl::PointXYZ> combined_pcl_bw_;
+		pcl::PointCloud<pcl::Normal> combined_pcl_normals_;
 		std::vector<double> bounding_box_;
         bool start_;
         bool cloud_subscription_started_;
@@ -287,6 +290,64 @@ PointcloudFusion::PointcloudFusion(ros::NodeHandle& nh,const std::string& fusion
     display_ = false;
     combined_pcl_ptr_.reset(new pcl::PointCloud<pcl::PointXYZRGB>);
     threads_.push_back(std::thread(&PointcloudFusion::fuseAndFilter, this));
+}
+
+void PointCloudfusion::estimateNormalsAndFuse()
+{
+
+    // while(ros::ok())
+    // {
+    //     std::pair<Eigen::Affine3d,sensor_msgs::PointCloud2Ptr> cloud_data;
+    //     bool received_data = false;
+    //     mtx_.lock();
+    //     if(clouds_.size()!=0)
+    //     {
+    //         cloud_data = clouds_[0];
+    //         clouds_.pop_front(); 
+    //         received_data = true;
+    //     }
+    //     mtx_.unlock();
+    //     if(received_data==false)
+    //     {
+    //         sleep(1);//TODO: Conditional Wait.
+    //         continue;
+    //     }
+    //     pcl::PCLPointCloud2 pcl_pc2;
+    //     auto cloud_in = cloud_data.second;
+    //     auto fusion_frame_T_camera = cloud_data.first;
+    //     pcl_conversions::toPCL(*cloud_in, pcl_pc2); 
+    //     pcl::PointCloud<pcl::PointXYZRGB> cloud_temp;
+    //     auto cloud = PCLUtilities::pointCloud2ToPclXYZRGB(pcl_pc2);
+    //     for(auto point:cloud.points)
+    //         if(point.z<2.0&&point.z>0.28)
+    //             cloud_temp.points.push_back(point);
+    //     pcl::PointCloud<pcl::PointXYZRGB> cloud_transformed;
+    //     pcl::transformPointCloud (cloud_temp, cloud_transformed, fusion_frame_T_camera);
+    //     for(int i=0;i<cloud_transformed.points.size();i++)
+    //     {
+    //         pcl::PointXYZ pt;
+    //         pcl::PointXYZRGB point = cloud_transformed.points[i];
+    //         pt.x = point.x;
+    //         pt.y = point.y;
+    //         pt.z = point.z;
+    //         Vector3f normal = {n[0],n[1],n[2]};
+    //         Vector3f normal_transformed = fusion_frame_T_camera*normal;
+            
+    //     }    
+    //     std::cout<<"Pointcloud received."<<std::endl;
+    //     std::cout<<cloud_in->header<<std::endl;
+    // }
+
+
+    // pcl::search::KdTree<pcl::PointXYZ>::Ptr tree(new pcl::search::KdTree<pcl::PointXYZ>);
+    // tree->setInputCloud(cloud);
+    // pcl::NormalEstimation<pcl::PointXYZ, pcl::Normal> normalEstimator;
+    // normalEstimator.setInputCloud(cloud);
+    // normalEstimator.setSearchMethod(tree);
+    // normalEstimator.setRadiusSearch(0.01);
+    // normalEstimator.setViewPoint(0,0,0);
+    // pcl::PointCloud<pcl::Normal>::Ptr cloud_normals(new pcl::PointCloud<pcl::Normal>);
+    // normalEstimator.compute(*cloud_normals);
 }
 
 void PointcloudFusion::fuseAndFilter()
@@ -320,7 +381,8 @@ void PointcloudFusion::fuseAndFilter()
         pcl::PointCloud<pcl::PointXYZRGB> cloud_transformed;
         pcl::transformPointCloud (cloud_temp, cloud_transformed, fusion_frame_T_camera);
         for(auto point:cloud_transformed.points)
-            if(point.z>0.0&&point.x>0.94&&point.x<1.33&&point.y>-0.38&&point.y<0.38)//TODO: Remove hardcoded values.
+            // if(point.z>0.0&&point.x>0.94&&point.x<1.33&&point.y>-0.38&&point.y<0.38)//TODO: Remove hardcoded values.
+            if(point.z>0.0)//TODO: Remove hardcoded values.
                 combined_pcl_ptr_->points.push_back(point);        
         std::cout<<"Pointcloud received."<<std::endl;
         std::cout<<cloud_in->header<<std::endl;
