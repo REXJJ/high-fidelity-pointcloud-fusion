@@ -248,3 +248,4 @@ target_link_libraries(${firstfile} ${PCL_LIBRARIES} ${OpenCV_LIBS} -lrt)
 endfunction()
 
 create_exe(pointcloud_fusion)
+create_exe(pointcloud_fusion_normals)
