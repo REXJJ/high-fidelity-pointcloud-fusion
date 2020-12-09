@@ -331,10 +331,15 @@ void PointcloudFusion::estimateNormalsAndFuse()
                 pt.z = point.z;
                 cloud_temp->points.push_back(pt);
             }
+        if(cloud_temp->points.size()>10000)
+        {
+            std::cout<<"Bad thing...."<<std::endl;
+            continue;
+        }
         std::cout<<"Downsampled and filtered points size : "<<cloud_temp->points.size()<<std::endl;
         pcl::search::KdTree<pcl::PointXYZ>::Ptr tree(new pcl::search::KdTree<pcl::PointXYZ>);
         tree->setInputCloud(cloud_temp);
-        pcl::NormalEstimation<pcl::PointXYZ, pcl::Normal> normalEstimator;
+        pcl::NormalEstimationOMP<pcl::PointXYZ, pcl::Normal> normalEstimator;
         normalEstimator.setInputCloud(cloud_temp);
         normalEstimator.setSearchMethod(tree);
         normalEstimator.setRadiusSearch(0.1);
@@ -358,13 +363,10 @@ void PointcloudFusion::estimateNormalsAndFuse()
         }
         cloud_normals_output->height = 1;
         cloud_normals_output->width = cloud_normals_output->points.size();
-        pcl::io::savePCDFileASCII ("/home/rflin/Desktop/test_normals_computed.pcd",*cloud_normals_output);
-
         pcl::PointCloud<pcl::PointNormal> cloud_transformed;
         pcl::transformPointCloudWithNormals(*cloud_normals_output,cloud_transformed, fusion_frame_T_camera);
         cloud_transformed.height = 1;
         cloud_transformed.width = cloud_transformed.points.size();
-        pcl::io::savePCDFileASCII ("/home/rflin/Desktop/test_normals_transformed.pcd",cloud_transformed);
         for(auto point:cloud_transformed.points)
             // if(point.z>0.0&&point.x>0.94&&point.x<1.33&&point.y>-0.38&&point.y<0.38)//TODO: Remove hardcoded values.
             if(point.z>0.0)//TODO: Remove hardcoded values.
