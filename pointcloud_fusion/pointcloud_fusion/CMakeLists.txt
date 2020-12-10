@@ -249,3 +249,4 @@ endfunction()
 
 create_exe(pointcloud_fusion)
 create_exe(pointcloud_fusion_normals)
+create_exe(pointcloud_fusion_and_filter)

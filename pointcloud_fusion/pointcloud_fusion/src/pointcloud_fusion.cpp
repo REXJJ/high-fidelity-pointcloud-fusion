@@ -80,7 +80,6 @@
 //LOCAL HEADERS
 /***********************************************/
 #include "pcl_ros_utilities/pcl_ros_utilities.hpp"
-#include "utilities/Volume.hpp"
 
 using namespace std;
 using namespace pcl;
