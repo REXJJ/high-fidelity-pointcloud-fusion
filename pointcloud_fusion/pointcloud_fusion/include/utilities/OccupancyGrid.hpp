@@ -140,8 +140,11 @@ bool OccupancyGrid::updateStates(pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud, p
             }
 
         }
-        Voxel& voxel = voxels_[x][y][z];
-        voxel.occupied = true;
+        if(validCoords(x,y,z))
+        {
+            Voxel& voxel = voxels_[x][y][z];
+            voxel.occupied = true;      
+        }
     }
     return true;
 }
