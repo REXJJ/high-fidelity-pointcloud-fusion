@@ -64,7 +64,8 @@
 #include <thread>
 #include <mutex>
 #include <condition_variable>
-
+#include <sys/types.h>
+#include <sys/wait.h>
 /*************************************************/
 //Other Libraries
 /*************************************************/
@@ -127,7 +128,7 @@ class PointcloudFusion
 		std::string pointcloud_frame_;
 		string directory_name_;
         std::deque<std::pair<Eigen::Affine3d,sensor_msgs::PointCloud2Ptr>> clouds_;
-        std::deque<std::tuple<Eigen::Affine3d,pcl::PointCloud<pcl::PointXYZRGB>::Ptr,pcl::PointCloud<pcl::PointNormal>::Ptr>> clouds_processed_;
+        std::deque<std::tuple<Eigen::Affine3d,pcl::PointCloud<pcl::PointXYZRGB>::Ptr,pcl::PointCloud<pcl::Normal>::Ptr,pcl::PointCloud<pcl::PointXYZ>::Ptr>> clouds_processed_;
         pcl::PointCloud<pcl::PointXYZRGB> combined_pcl_;
         pcl::PointCloud<pcl::PointXYZRGB>::Ptr combined_pcl_ptr_;
         pcl::PointCloud<pcl::PointXYZRGB> combined_pcl_display_;
@@ -164,7 +165,7 @@ PointcloudFusion::PointcloudFusion(ros::NodeHandle& nh,const std::string& fusion
     cloud_subscription_started_ = false;
     display_ = false;
     grid_.setResolution(0.005,0.005,0.005);
-    grid_.setDimensions(0.7,1.7,0.2,1.2,0,1);
+    grid_.setDimensions(0.5,1.5,-0.5,1.5,0,1);
     grid_.construct();
     grid_.setK(2);
     std::cout<<"Construction done.."<<std::endl;
@@ -214,45 +215,21 @@ void PointcloudFusion::estimateNormals()
             }
         }
         pcl::PointCloud<pcl::PointXYZ>::Ptr normals_root(new pcl::PointCloud<pcl::PointXYZ>);
-        PCLUtilities::downsample_ptr<pcl::PointXYZ>(cloud_bw,normals_root,0.02);
-        if(normals_root->points.size()>10000)
-        {
-            std::cout<<"Bad thing...."<<std::endl;
-            continue;
-        }
+        PCLUtilities::downsample_ptr<pcl::PointXYZ>(cloud_bw,normals_root,0.005);
         std::cout<<"Downsampled and filtered points size : "<<normals_root->points.size()<<std::endl;
         pcl::search::KdTree<pcl::PointXYZ>::Ptr tree(new pcl::search::KdTree<pcl::PointXYZ>);
         tree->setInputCloud(normals_root);//TODO: Might need to change.
         pcl::NormalEstimationOMP<pcl::PointXYZ, pcl::Normal> normalEstimator;
         normalEstimator.setInputCloud(normals_root);
         normalEstimator.setSearchMethod(tree);
-        normalEstimator.setRadiusSearch(0.1);
-        normalEstimator.setViewPoint(0,0,0);
+        normalEstimator.setRadiusSearch(0.015);
+        normalEstimator.useSensorOriginAsViewPoint();
         pcl::PointCloud<pcl::Normal>::Ptr cloud_normals(new pcl::PointCloud<pcl::Normal>);
         normalEstimator.compute(*cloud_normals);
 
-        pcl::PointCloud<pcl::PointNormal>::Ptr cloud_normals_output(new pcl::PointCloud<pcl::PointNormal>);
-        for(int i=0;i<cloud_normals->points.size();i++)
-        {
-            pcl::PointNormal pt;
-            pcl::PointXYZ ptxyz = normals_root->points[i];
-            pcl::Normal ptn = cloud_normals->points[i];
-            pt.x = ptxyz.x;
-            pt.y = ptxyz.y;
-            pt.z = ptxyz.z;
-            pt.normal[0] = ptn.normal[0];
-            pt.normal[1] = ptn.normal[1];
-            pt.normal[2] = ptn.normal[2];
-            cloud_normals_output->points.push_back(pt);
-        }
         proc_mtx_.lock();
-        clouds_processed_.push_back(make_tuple(fusion_frame_T_camera,cloud,cloud_normals_output));
+        clouds_processed_.push_back(make_tuple(fusion_frame_T_camera,cloud,cloud_normals,normals_root));
         proc_mtx_.unlock();
-        // pcl::PointCloud<pcl::PointNormal>::Ptr normals_transformed(new pcl::PointCloud<pcl::PointNormal>);
-        // pcl::transformPointCloudWithNormals(*cloud_normals_output,*normals_transformed, fusion_frame_T_camera);      
-        // pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud_transformed(new pcl::PointCloud<pcl::PointXYZRGB>);
-        // pcl::transformPointCloud (*cloud, *cloud_transformed, fusion_frame_T_camera);
-        // grid_.updateStates(cloud_transformed,normals_transformed);
         std::cout<<"Pointcloud "<<counter++<<" normals calculated.."<<std::endl;
     }
 }
@@ -262,7 +239,7 @@ void PointcloudFusion::updateStates()
     int counter = 0;
     while(ros::ok())
     {
-        std::tuple<Eigen::Affine3d,pcl::PointCloud<pcl::PointXYZRGB>::Ptr,pcl::PointCloud<pcl::PointNormal>::Ptr> cloud_data;
+        std::tuple<Eigen::Affine3d,pcl::PointCloud<pcl::PointXYZRGB>::Ptr,pcl::PointCloud<pcl::Normal>::Ptr,pcl::PointCloud<pcl::PointXYZ>::Ptr> cloud_data;
         bool received_data = false;
         proc_mtx_.lock();
         if(clouds_processed_.size()!=0)
@@ -280,9 +257,25 @@ void PointcloudFusion::updateStates()
         std::cout<<"In states updation thread."<<std::endl;
         auto fusion_frame_T_camera = get<0>(cloud_data);
         auto cloud = get<1>(cloud_data);
-        auto normals = get<2>(cloud_data);
+        auto cloud_normals = get<2>(cloud_data);
+        auto normals_root = get<3>(cloud_data);
+        pcl::PointCloud<pcl::PointNormal>::Ptr cloud_normals_output(new pcl::PointCloud<pcl::PointNormal>);
+        for(int i=0;i<cloud_normals->points.size();i++)
+        {
+            pcl::PointNormal pt;
+            pcl::PointXYZ ptxyz = normals_root->points[i];
+            pcl::Normal ptn = cloud_normals->points[i];
+            pt.x = ptxyz.x;
+            pt.y = ptxyz.y;
+            pt.z = ptxyz.z;
+            pt.normal[0] = ptn.normal[0];
+            pt.normal[1] = ptn.normal[1];
+            pt.normal[2] = ptn.normal[2];
+            cloud_normals_output->points.push_back(pt);
+        }
+
         pcl::PointCloud<pcl::PointNormal>::Ptr normals_transformed(new pcl::PointCloud<pcl::PointNormal>);
-        pcl::transformPointCloudWithNormals(*normals,*normals_transformed, fusion_frame_T_camera);      
+        pcl::transformPointCloudWithNormals(*cloud_normals_output,*normals_transformed, fusion_frame_T_camera);      
         pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud_transformed(new pcl::PointCloud<pcl::PointXYZRGB>);
         pcl::transformPointCloud (*cloud, *cloud_transformed, fusion_frame_T_camera);
         grid_.updateStates(cloud_transformed,normals_transformed);
