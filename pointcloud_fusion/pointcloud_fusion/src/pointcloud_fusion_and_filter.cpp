@@ -361,6 +361,15 @@ bool PointcloudFusion::getFusedCloud(std_srvs::TriggerRequest& req, std_srvs::Tr
     std::cout<<"Downloading cloud."<<std::endl;
     grid_.downloadHQCloud(combined_pcl_normals_);
     pcl::io::savePCDFileASCII ("/home/rflin/Desktop/test_normals_combined.pcd",*combined_pcl_normals_);
+    pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr cloud_output(new pcl::PointCloud<pcl::PointXYZRGBNormal>);
+    grid_.downloadCloud(cloud_output);
+    pcl::io::savePCDFileASCII ("/home/rflin/Desktop/test_normals_combined_full.pcd",*cloud_output);
+    pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr cloud_output_reorganized(new pcl::PointCloud<pcl::PointXYZRGBNormal>);
+    grid_.downloadReorganizedCloud(cloud_output_reorganized);
+    pcl::io::savePCDFileASCII ("/home/rflin/Desktop/test_normals_combined_full_reorganized.pcd",*cloud_output_reorganized);
+    pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr cloud_output_reorganized_clean(new pcl::PointCloud<pcl::PointXYZRGBNormal>);
+    grid_.downloadReorganizedCloud(cloud_output_reorganized_clean,true);
+    pcl::io::savePCDFileASCII ("/home/rflin/Desktop/test_normals_combined_full_reorganized_clean.pcd",*cloud_output_reorganized_clean);
     std::cout<<"Fusion Done..."<<std::endl;
     res.success=true;
     return true;

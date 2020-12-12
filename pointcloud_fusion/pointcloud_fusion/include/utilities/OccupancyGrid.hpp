@@ -98,7 +98,7 @@ bool OccupancyGrid::updateStates(pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud, p
 {
 #pragma omp parallel for \ 
   default(none) \
-  shared(voxels_,normals) \
+  shared(normals) \
   num_threads(8)
     for(int p=0;p<normals->points.size();p++)
     {
@@ -124,7 +124,7 @@ bool OccupancyGrid::updateStates(pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud, p
     std::cout<<"Points in cloud: "<<cloud->points.size()<<std::endl;
 #pragma omp parallel for \ 
   default(none) \
-  shared(voxels_,cloud) \
+  shared(cloud) \
   num_threads(8)
     for(int p=0;p<cloud->points.size();p++)
     {
@@ -207,7 +207,7 @@ bool OccupancyGrid::downloadReorganizedCloud(pcl::PointCloud<pcl::PointXYZRGBNor
     }
 #pragma omp parallel for \ 
   default(none) \
-  shared(voxels_reorganized_,voxels_,cloud) \
+  shared(cloud) \
   num_threads(8)
     for(int x=0;x<xdim_;x++)
         for(int y=0;y<ydim_;y++)
@@ -224,7 +224,7 @@ bool OccupancyGrid::downloadReorganizedCloud(pcl::PointCloud<pcl::PointXYZRGBNor
     std::cout<<"Stage One done.."<<std::endl;
  #pragma omp parallel for \ 
   default(none) \
-  shared(clean,voxels_reorganized_,voxels_,cloud) \
+  shared(clean,cloud) \
   num_threads(8)
    for(int x=0;x<xdim_;x++)
         for(int y=0;y<ydim_;y++)
