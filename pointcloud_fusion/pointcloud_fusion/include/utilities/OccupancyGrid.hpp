@@ -22,6 +22,7 @@
 #include <pcl/point_cloud.h>
 #include <pcl/point_types.h>
 #include <pcl/impl/point_types.hpp>
+#include <omp.h>
 
 using namespace std;
 using namespace pcl;
@@ -53,6 +54,7 @@ class OccupancyGrid
     int xdim_,ydim_,zdim_;
     int k_;
     vector<vector<vector<Voxel>>> voxels_;
+    vector<vector<vector<Voxel>>> voxels_reorganized_;
 
     OccupancyGrid(){k_=0;xdim_=ydim_=zdim_=0;};
     void setDimensions(double xmin,double xmax,double ymin,double ymax,double zmin,double zmax);
@@ -74,6 +76,7 @@ class OccupancyGrid
     bool updateStates(pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud, pcl::PointCloud<pcl::PointNormal>::Ptr normals);
     bool downloadCloud(pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr cloud);
     bool downloadHQCloud(pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr cloud);
+    bool downloadReorganizedCloud(pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr cloud,bool clean=false);
 };
 
 constexpr double ball_radius = 0.015;
@@ -93,27 +96,39 @@ Vector3f projectPointToVector(Vector3f pt, Vector3f norm_pt, Vector3f n)
 
 bool OccupancyGrid::updateStates(pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud, pcl::PointCloud<pcl::PointNormal>::Ptr normals)
 {
-    for(auto pt:normals->points)
+#pragma omp parallel for \ 
+  default(none) \
+  shared(voxels_,normals) \
+  num_threads(8)
+    for(int p=0;p<normals->points.size();p++)
     {
+        auto pt = normals->points[p];
         Vector3f point = {pt.x,pt.y,pt.z};
         Vector3f normal = {pt.normal[0],pt.normal[1],pt.normal[2]};
         int x,y,z;
         tie(x,y,z) = getVoxelCoords(point);
         for(int i=-k_;i<=k_;i++)
-        for(int j=-k_;j<=k_;j++)
-        for(int k=-k_;k<=k_;k++)
-        {
-            if(validCoords(x+i,y+j,z+k)==false)
-                continue;
-            Voxel &voxel = voxels_[x+i][y+j][z+k];
-            voxel.normal+=normal;
-            voxel.normal=voxel.normal.normalized();
-            voxel.normal_found = true;
-        }
+            for(int j=-k_;j<=k_;j++)
+            {
+                for(int k=-k_;k<=k_;k++)
+                {
+                    if(validCoords(x+i,y+j,z+k)==false)
+                        continue;
+                    Voxel &voxel = voxels_[x+i][y+j][z+k];
+                    voxel.normal+=normal;
+                    voxel.normal=voxel.normal.normalized();
+                    voxel.normal_found = true;
+                }
+            }
     }
     std::cout<<"Points in cloud: "<<cloud->points.size()<<std::endl;
-    for(auto pt:cloud->points)
+#pragma omp parallel for \ 
+  default(none) \
+  shared(voxels_,cloud) \
+  num_threads(8)
+    for(int p=0;p<cloud->points.size();p++)
     {
+        auto pt = cloud->points[p];
         Vector3f point = {pt.x,pt.y,pt.z};
         int x,y,z;
         tie(x,y,z) = getVoxelCoords(point);
@@ -182,6 +197,93 @@ bool OccupancyGrid::downloadCloud(pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr c
     return true;
 }
 
+bool OccupancyGrid::downloadReorganizedCloud(pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr cloud,bool clean)
+{
+    voxels_reorganized_=vector<vector<vector<Voxel>>>(xdim_, vector<vector<Voxel>>(ydim_, vector<Voxel>(zdim_,Voxel())));
+    if(cloud==nullptr)
+    {
+        std::cout<<"Cloud not initialized.."<<std::endl;
+        return false;
+    }
+#pragma omp parallel for \ 
+  default(none) \
+  shared(voxels_reorganized_,voxels_,cloud) \
+  num_threads(8)
+    for(int x=0;x<xdim_;x++)
+        for(int y=0;y<ydim_;y++)
+            for(int z=0;z<zdim_;z++)
+                {
+                    Voxel voxel = voxels_[x][y][z];
+                    Voxel &voxel_new = voxels_reorganized_[x][y][z];
+                    voxel_new.normal = voxel.normal;
+                    voxel_new.centroid = voxel.centroid;
+                    voxel_new.count  = voxel.count;
+                    voxel_new.normal_found = voxel.normal_found;
+
+                }
+    std::cout<<"Stage One done.."<<std::endl;
+ #pragma omp parallel for \ 
+  default(none) \
+  shared(clean,voxels_reorganized_,voxels_,cloud) \
+  num_threads(8)
+   for(int x=0;x<xdim_;x++)
+        for(int y=0;y<ydim_;y++)
+            for(int z=0;z<zdim_;z++)
+                {
+                    Voxel &voxel = voxels_reorganized_[x][y][z];
+                    if(voxels_[x][y][z].occupied==false)
+                        continue;
+                    if(clean==true&&voxel.count<100)
+                        continue;
+                    int xx,yy,zz;
+                    tie(xx,yy,zz) = getVoxelCoords(voxel.centroid);
+                    if(validCoords(xx,yy,zz))
+                    {
+                        Voxel &voxel_new = voxels_reorganized_[xx][yy][zz];
+                        voxel_new.occupied = true;
+                        voxel_new.normal+=voxel.normal;
+                        voxel_new.normal = voxel_new.normal.normalized();
+                        if(voxel_new.count==0)
+                        {
+                            voxel_new.centroid = voxel.centroid;
+                        }
+                        else
+                        {
+                            voxel_new.centroid+=voxel.centroid;
+                            voxel_new.centroid/=2.0;
+                            voxel_new.count++;
+                        }
+
+                    }
+                }
+    std::cout<<"Stage Two done.."<<std::endl;
+  for(int x=0;x<xdim_;x++)
+        for(int y=0;y<ydim_;y++)
+            for(int z=0;z<zdim_;z++)
+                {
+                    Voxel voxel = voxels_reorganized_[x][y][z];
+                    if(voxel.occupied==true)
+                    {
+                        pcl::PointXYZRGBNormal pt;
+                        pt.x = voxel.centroid(0);
+                        pt.y = voxel.centroid(1);
+                        pt.z = voxel.centroid(2);
+                        pt.r = 0;
+                        pt.g = 0;
+                        pt.b = 0;
+                        pt.normal[0] = voxel.normal(0);
+                        pt.normal[1] = voxel.normal(1);
+                        pt.normal[2] = voxel.normal(2);
+                        cloud->points.push_back(pt);
+                    }
+                }
+    std::cout<<"Stage Three done.."<<std::endl;
+    std::cout<<"Points: "<<cloud->points.size()<<std::endl;
+    cloud->height = 1;
+    cloud->width = cloud->points.size();
+    return true;
+}
+
 bool OccupancyGrid::downloadHQCloud(pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr cloud)
 {
     if(cloud==nullptr)
@@ -189,9 +291,9 @@ bool OccupancyGrid::downloadHQCloud(pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr
         std::cout<<"Cloud not initialized.."<<std::endl;
         return false;
     }
-    for(int x=0;x<xdim_;x++)
-        for(int y=0;y<ydim_;y++)
-            for(int z=0;z<zdim_;z++)
+        for(int x=0;x<xdim_;x++)
+            for(int y=0;y<ydim_;y++)
+                for(int z=0;z<zdim_;z++)
                 {
                     Voxel voxel = voxels_[x][y][z];
                     if(voxel.occupied==true&&voxel.count>100)
