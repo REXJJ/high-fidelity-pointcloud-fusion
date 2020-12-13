@@ -134,6 +134,7 @@ class PointcloudFusion
         pcl::PointCloud<pcl::PointXYZRGB> combined_pcl_display_;
         pcl::PointCloud<pcl::PointXYZ> combined_pcl_bw_;
         pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr combined_pcl_normals_;
+        pcl::PointCloud<pcl::PointNormal>::Ptr cloud_normals_output_dbg;
 		std::vector<double> bounding_box_;
         OccupancyGrid grid_;
 
@@ -171,6 +172,7 @@ PointcloudFusion::PointcloudFusion(ros::NodeHandle& nh,const std::string& fusion
     std::cout<<"Construction done.."<<std::endl;
     combined_pcl_ptr_.reset(new pcl::PointCloud<pcl::PointXYZRGB>);
     combined_pcl_normals_.reset(new pcl::PointCloud<pcl::PointXYZRGBNormal>);
+    cloud_normals_output_dbg.reset(new pcl::PointCloud<pcl::PointNormal>);
     threads_.push_back(std::thread(&PointcloudFusion::estimateNormals, this));
     threads_.push_back(std::thread(&PointcloudFusion::updateStates, this));
 }
@@ -192,6 +194,7 @@ void PointcloudFusion::estimateNormals()
         mtx_.unlock();
         if(received_data==false)
         {
+            std::cout<<"Pointcloud "<<counter<<" normals calculated.."<<std::endl;
             sleep(1);//TODO: Conditional Wait.
             continue;
         }
@@ -216,10 +219,10 @@ void PointcloudFusion::estimateNormals()
         }
         pcl::PointCloud<pcl::PointXYZ>::Ptr normals_root(new pcl::PointCloud<pcl::PointXYZ>);
         PCLUtilities::downsample_ptr<pcl::PointXYZ>(cloud_bw,normals_root,0.005);
-        std::cout<<"Downsampled and filtered points size : "<<normals_root->points.size()<<std::endl;
         pcl::search::KdTree<pcl::PointXYZ>::Ptr tree(new pcl::search::KdTree<pcl::PointXYZ>);
         tree->setInputCloud(normals_root);//TODO: Might need to change.
         pcl::NormalEstimationOMP<pcl::PointXYZ, pcl::Normal> normalEstimator;
+        normalEstimator.setNumberOfThreads(8);
         normalEstimator.setInputCloud(normals_root);
         normalEstimator.setSearchMethod(tree);
         normalEstimator.setRadiusSearch(0.015);
@@ -230,7 +233,8 @@ void PointcloudFusion::estimateNormals()
         proc_mtx_.lock();
         clouds_processed_.push_back(make_tuple(fusion_frame_T_camera,cloud,cloud_normals,normals_root));
         proc_mtx_.unlock();
-        std::cout<<"Pointcloud "<<counter++<<" normals calculated.."<<std::endl;
+        counter++;
+        // std::cout<<"Pointcloud "<<counter++<<" normals calculated.."<<std::endl;
     }
 }
 
@@ -251,15 +255,20 @@ void PointcloudFusion::updateStates()
         proc_mtx_.unlock();
         if(received_data==false)
         {
+            std::cout<<"Pointcloud "<<counter<<" states updated.."<<std::endl;
             sleep(1);
             continue;
         }
-        std::cout<<"In states updation thread."<<std::endl;
         auto fusion_frame_T_camera = get<0>(cloud_data);
         auto cloud = get<1>(cloud_data);
         auto cloud_normals = get<2>(cloud_data);
         auto normals_root = get<3>(cloud_data);
         pcl::PointCloud<pcl::PointNormal>::Ptr cloud_normals_output(new pcl::PointCloud<pcl::PointNormal>);
+        cloud_normals_output->points.resize(cloud_normals->points.size());
+        #pragma omp parallel for \ 
+          default(none) \
+          shared(cloud_normals_output,cloud_normals,normals_root) \
+          num_threads(8)
         for(int i=0;i<cloud_normals->points.size();i++)
         {
             pcl::PointNormal pt;
@@ -271,15 +280,25 @@ void PointcloudFusion::updateStates()
             pt.normal[0] = ptn.normal[0];
             pt.normal[1] = ptn.normal[1];
             pt.normal[2] = ptn.normal[2];
-            cloud_normals_output->points.push_back(pt);
+            cloud_normals_output->points[i]=pt;
         }
 
+
+
         pcl::PointCloud<pcl::PointNormal>::Ptr normals_transformed(new pcl::PointCloud<pcl::PointNormal>);
-        pcl::transformPointCloudWithNormals(*cloud_normals_output,*normals_transformed, fusion_frame_T_camera);      
+        pcl::transformPointCloudWithNormals(*cloud_normals_output,*normals_transformed, fusion_frame_T_camera);    
+
+        // for(int i=0;i<normals_transformed->points.size();i++)
+        // {
+        //     pcl::PointNormal pt = normals_transformed->points[i];
+        //     cloud_normals_output_dbg->points.push_back(pt);
+        // }
+
         pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud_transformed(new pcl::PointCloud<pcl::PointXYZRGB>);
         pcl::transformPointCloud (*cloud, *cloud_transformed, fusion_frame_T_camera);
         grid_.updateStates(cloud_transformed,normals_transformed);
-        std::cout<<"Pointcloud "<<counter++<<" states updated.."<<std::endl;
+        counter++;
+        // std::cout<<"Pointcloud "<<counter++<<" states updated.."<<std::endl;
     }
 }
 
@@ -370,6 +389,9 @@ bool PointcloudFusion::getFusedCloud(std_srvs::TriggerRequest& req, std_srvs::Tr
     pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr cloud_output_reorganized_clean(new pcl::PointCloud<pcl::PointXYZRGBNormal>);
     grid_.downloadReorganizedCloud(cloud_output_reorganized_clean,true);
     pcl::io::savePCDFileASCII ("/home/rflin/Desktop/test_normals_combined_full_reorganized_clean.pcd",*cloud_output_reorganized_clean);
+    // cloud_normals_output_dbg->height = 1;
+    // cloud_normals_output_dbg->width = cloud_normals_output_dbg->points.size();
+    // pcl::io::savePCDFileASCII ("/home/rflin/Desktop/test_normals_combined_full_raw_downsampled.pcd",*cloud_normals_output_dbg);
     std::cout<<"Fusion Done..."<<std::endl;
     res.success=true;
     return true;

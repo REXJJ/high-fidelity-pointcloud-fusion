@@ -22,6 +22,7 @@
 #include <pcl/point_cloud.h>
 #include <pcl/point_types.h>
 #include <pcl/impl/point_types.hpp>
+#include <pcl/common/transforms.h>
 #include <omp.h>
 
 using namespace std;
@@ -74,6 +75,7 @@ class OccupancyGrid
 
     vector<unsigned long long int> getNeighborHashes(unsigned long long int hash,int K=1);
     bool updateStates(pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud, pcl::PointCloud<pcl::PointNormal>::Ptr normals);
+    bool updateStates(pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud, pcl::PointCloud<pcl::PointNormal>::Ptr normals, Eigen::Affine3d transform);
     bool downloadCloud(pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr cloud);
     bool downloadHQCloud(pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr cloud);
     bool downloadReorganizedCloud(pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr cloud,bool clean=false);
@@ -121,7 +123,7 @@ bool OccupancyGrid::updateStates(pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud, p
                 }
             }
     }
-    std::cout<<"Points in cloud: "<<cloud->points.size()<<std::endl;
+    // std::cout<<"Points in cloud: "<<cloud->points.size()<<std::endl;
 #pragma omp parallel for \ 
   default(none) \
   shared(cloud) \
@@ -154,6 +156,76 @@ bool OccupancyGrid::updateStates(pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud, p
                 }
             }
 
+        }
+        if(validCoords(x,y,z))
+        {
+            Voxel& voxel = voxels_[x][y][z];
+            voxel.occupied = true;      
+        }
+    }
+    return true;
+}
+
+bool OccupancyGrid::updateStates(pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud, pcl::PointCloud<pcl::PointNormal>::Ptr normals,Eigen::Affine3d transform)
+{
+#pragma omp parallel for \ 
+  default(none) \
+  shared(normals) \
+  num_threads(8)
+    for(int p=0;p<normals->points.size();p++)
+    {
+        auto pt = normals->points[p];
+        Vector3f point = {pt.x,pt.y,pt.z};
+        Vector3f normal = {pt.normal[0],pt.normal[1],pt.normal[2]};
+        int x,y,z;
+        tie(x,y,z) = getVoxelCoords(point);
+        for(int i=-k_;i<=k_;i++)
+            for(int j=-k_;j<=k_;j++)
+            {
+                for(int k=-k_;k<=k_;k++)
+                {
+                    if(validCoords(x+i,y+j,z+k)==false)
+                        continue;
+                    Voxel &voxel = voxels_[x+i][y+j][z+k];
+                    voxel.normal+=normal;
+                    voxel.normal=voxel.normal.normalized();
+                    voxel.normal_found = true;
+                }
+            }
+    }
+    // std::cout<<"Points in cloud: "<<cloud->points.size()<<std::endl;
+#pragma omp parallel for \ 
+  default(none) \
+  shared(cloud,transform) \
+  num_threads(8)
+    for(int p=0;p<cloud->points.size();p++)
+    {
+        auto pt = cloud->points[p];
+        auto trans_pt = pcl::transformPoint (pt,transform);
+        Vector3f point = {trans_pt.x,trans_pt.y,trans_pt.z};
+        int x,y,z;
+        tie(x,y,z) = getVoxelCoords(point);
+        for(int i=-k_;i<=k_;i++)
+        for(int j=-k_;j<=k_;j++)
+        for(int k=-k_;k<=k_;k++)
+        {
+            if(validCoords(x+i,y+j,z+k)==false)
+                continue;
+            Voxel& voxel = voxels_[x+i][y+j][z+k];
+            Vector3f centroid = {xmin_+xres_*(x+i)+xres_/2.0,ymin_+yres_*(y+j)+yres_/2.0,zmin_+zres_*(z+k)+zres_/2.0};
+            Vector3f normal = voxel.normal;
+            if(voxel.normal_found)
+            {
+                Vector3f projected_points = projectPointToVector(point,centroid,normal);
+                double distance_to_normal = (point - projected_points).norm();
+                if(distance_to_normal<cylinder_radius)
+                {
+                   int count = voxel.count;
+                   count++;
+                   voxel.centroid = voxel.centroid + (projected_points-voxel.centroid)/count;
+                   voxel.count = count;
+                }
+            }
         }
         if(validCoords(x,y,z))
         {
