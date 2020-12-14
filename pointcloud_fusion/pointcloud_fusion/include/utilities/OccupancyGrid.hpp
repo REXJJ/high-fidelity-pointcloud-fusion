@@ -29,6 +29,8 @@ using namespace std;
 using namespace pcl;
 using namespace Eigen;
 
+constexpr int kGoodPointsThreshold = 100;
+
 struct Voxel
 {
     Vector3f normal;
@@ -109,19 +111,13 @@ bool OccupancyGrid::updateStates(pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud, p
         Vector3f normal = {pt.normal[0],pt.normal[1],pt.normal[2]};
         int x,y,z;
         tie(x,y,z) = getVoxelCoords(point);
-        for(int i=-k_;i<=k_;i++)
-            for(int j=-k_;j<=k_;j++)
-            {
-                for(int k=-k_;k<=k_;k++)
-                {
-                    if(validCoords(x+i,y+j,z+k)==false)
-                        continue;
-                    Voxel &voxel = voxels_[x+i][y+j][z+k];
-                    voxel.normal+=normal;
-                    voxel.normal=voxel.normal.normalized();
-                    voxel.normal_found = true;
-                }
-            }
+        if(validCoords(x,y,z)==false)
+            continue;
+        Voxel &voxel = voxels_[x][y][z];
+        voxel.normal+=normal;
+        voxel.normal=voxel.normal.normalized();
+        voxel.normal_found = true;
+
     }
     // std::cout<<"Points in cloud: "<<cloud->points.size()<<std::endl;
 #pragma omp parallel for \ 
@@ -305,7 +301,7 @@ bool OccupancyGrid::downloadReorganizedCloud(pcl::PointCloud<pcl::PointXYZRGBNor
                     Voxel &voxel = voxels_reorganized_[x][y][z];
                     if(voxels_[x][y][z].occupied==false)
                         continue;
-                    if(clean==true&&voxel.count<100)
+                    if(clean==true&&voxel.count<kGoodPointsThreshold)
                         continue;
                     int xx,yy,zz;
                     tie(xx,yy,zz) = getVoxelCoords(voxel.centroid);
@@ -368,7 +364,7 @@ bool OccupancyGrid::downloadHQCloud(pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr
                 for(int z=0;z<zdim_;z++)
                 {
                     Voxel voxel = voxels_[x][y][z];
-                    if(voxel.occupied==true&&voxel.count>100)
+                    if(voxel.occupied==true&&voxel.count>kGoodPointsThreshold)
                     {
                         pcl::PointXYZRGBNormal pt;
                         pt.x = voxel.centroid(0);

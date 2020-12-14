@@ -137,6 +137,7 @@ class PointcloudFusion
         pcl::PointCloud<pcl::PointNormal>::Ptr cloud_normals_output_dbg;
 		std::vector<double> bounding_box_;
         OccupancyGrid grid_;
+        pcl::NormalEstimationOMP<pcl::PointXYZ, pcl::Normal> normalEstimator_;
 
         bool start_;
         bool cloud_subscription_started_;
@@ -166,10 +167,11 @@ PointcloudFusion::PointcloudFusion(ros::NodeHandle& nh,const std::string& fusion
     cloud_subscription_started_ = false;
     display_ = false;
     grid_.setResolution(0.005,0.005,0.005);
-    grid_.setDimensions(0.5,1.5,-0.5,1.5,0,1);
+    grid_.setDimensions(0.80,1.80,-0.4,1.4,0,1);
     grid_.construct();
     grid_.setK(2);
     std::cout<<"Construction done.."<<std::endl;
+    normalEstimator_.setNumberOfThreads(8);
     combined_pcl_ptr_.reset(new pcl::PointCloud<pcl::PointXYZRGB>);
     combined_pcl_normals_.reset(new pcl::PointCloud<pcl::PointXYZRGBNormal>);
     cloud_normals_output_dbg.reset(new pcl::PointCloud<pcl::PointNormal>);
@@ -221,15 +223,12 @@ void PointcloudFusion::estimateNormals()
         PCLUtilities::downsample_ptr<pcl::PointXYZ>(cloud_bw,normals_root,0.005);
         pcl::search::KdTree<pcl::PointXYZ>::Ptr tree(new pcl::search::KdTree<pcl::PointXYZ>);
         tree->setInputCloud(normals_root);//TODO: Might need to change.
-        pcl::NormalEstimationOMP<pcl::PointXYZ, pcl::Normal> normalEstimator;
-        normalEstimator.setNumberOfThreads(8);
-        normalEstimator.setInputCloud(normals_root);
-        normalEstimator.setSearchMethod(tree);
-        normalEstimator.setRadiusSearch(0.015);
-        normalEstimator.useSensorOriginAsViewPoint();
+        normalEstimator_.setInputCloud(normals_root);
+        normalEstimator_.setSearchMethod(tree);
+        normalEstimator_.setRadiusSearch(0.015);
+        normalEstimator_.useSensorOriginAsViewPoint();
         pcl::PointCloud<pcl::Normal>::Ptr cloud_normals(new pcl::PointCloud<pcl::Normal>);
-        normalEstimator.compute(*cloud_normals);
-
+        normalEstimator_.compute(*cloud_normals);
         proc_mtx_.lock();
         clouds_processed_.push_back(make_tuple(fusion_frame_T_camera,cloud,cloud_normals,normals_root));
         proc_mtx_.unlock();
