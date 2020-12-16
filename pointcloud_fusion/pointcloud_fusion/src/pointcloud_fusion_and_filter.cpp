@@ -76,6 +76,7 @@
 #include <boost/date_time/posix_time/posix_time.hpp>
 #include <boost/interprocess/shared_memory_object.hpp>
 #include <boost/interprocess/mapped_region.hpp>
+#include <chrono>
 
 /************************************************/
 //LOCAL HEADERS
@@ -110,7 +111,7 @@ class PointcloudFusion
 		tf2_ros::Buffer tf_buffer_;
 		/** @brief Listener used to look up tranforms for the location of the camera */
 		tf2_ros::TransformListener robot_tform_listener_;
-        void onReceivedPointCloud(const sensor_msgs::PointCloud2Ptr& cloud_in);
+        void onReceivedPointCloud(sensor_msgs::PointCloud2Ptr cloud_in);
         //Services
 		ros::ServiceServer save_point_cloud_;
 		ros::ServiceServer reset_service_;
@@ -138,6 +139,12 @@ class PointcloudFusion
 		std::vector<double> bounding_box_;
         OccupancyGrid grid_;
         pcl::NormalEstimationOMP<pcl::PointXYZ, pcl::Normal> normalEstimator_;
+
+
+        std::deque<std::vector<sensor_msgs::PointCloud2Ptr>> clouds_test_cont;
+        int front,back;
+        int counters;
+
 
         bool start_;
         bool cloud_subscription_started_;
@@ -175,22 +182,33 @@ PointcloudFusion::PointcloudFusion(ros::NodeHandle& nh,const std::string& fusion
     combined_pcl_ptr_.reset(new pcl::PointCloud<pcl::PointXYZRGB>);
     combined_pcl_normals_.reset(new pcl::PointCloud<pcl::PointXYZRGBNormal>);
     cloud_normals_output_dbg.reset(new pcl::PointCloud<pcl::PointNormal>);
+    counters = 0;
+    std::vector<sensor_msgs::PointCloud2Ptr> temp;
+    clouds_test_cont.push_back(temp);
     threads_.push_back(std::thread(&PointcloudFusion::estimateNormals, this));
-    threads_.push_back(std::thread(&PointcloudFusion::updateStates, this));
+    // threads_.push_back(std::thread(&PointcloudFusion::updateStates, this));
 }
 
 void PointcloudFusion::estimateNormals()
 {
     int counter = 0;
+    pcl::PCLPointCloud2 pcl_pc2;
+    Eigen::Affine3d fusion_frame_T_camera;
     while(ros::ok())
     {
-        std::pair<Eigen::Affine3d,sensor_msgs::PointCloud2Ptr> cloud_data;
         bool received_data = false;
         mtx_.lock();
-        if(clouds_.size()!=0)
+        auto clouds_test = clouds_test_cont[0];
+        if(clouds_test.size()!=0)
         {
-            cloud_data = clouds_[0];
-            clouds_.pop_front(); 
+            // std::pair<Eigen::Affine3d,sensor_msgs::PointCloud2Ptr> cloud_data;
+            // cloud_data = clouds_[0];
+            // auto cloud_in = cloud_data.second;
+            // fusion_frame_T_camera = cloud_data.first;
+            // pcl_conversions::toPCL(*cloud_in, pcl_pc2); 
+            auto t = clouds_test[0];
+            clouds_test.erase(clouds_test.begin());
+            std::cout<<"Size of clouds after erasing "<<clouds_test.size()<<std::endl;
             received_data = true;
         }
         mtx_.unlock();
@@ -200,38 +218,37 @@ void PointcloudFusion::estimateNormals()
             sleep(1);//TODO: Conditional Wait.
             continue;
         }
-        pcl::PCLPointCloud2 pcl_pc2;
-        auto cloud_in = cloud_data.second;
-        auto fusion_frame_T_camera = cloud_data.first;
-        pcl_conversions::toPCL(*cloud_in, pcl_pc2); 
-        pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_bw (new pcl::PointCloud<pcl::PointXYZ>);
-        auto cloud_input = PCLUtilities::pointCloud2ToPclXYZRGB(pcl_pc2);
-        pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud(new pcl::PointCloud<pcl::PointXYZRGB>);
-        for(auto point:cloud_input.points)
-        {
-            if(point.z<0.81&&point.z>0.28)//TODO: Change hardcoded values.
-            {
-                pcl::PointXYZ pt;
-                pt.x = point.x;
-                pt.y = point.y;
-                pt.z = point.z;
-                cloud_bw->points.push_back(pt);
-                cloud->points.push_back(point);
-            }
-        }
-        pcl::PointCloud<pcl::PointXYZ>::Ptr normals_root(new pcl::PointCloud<pcl::PointXYZ>);
-        PCLUtilities::downsample_ptr<pcl::PointXYZ>(cloud_bw,normals_root,0.005);
-        pcl::search::KdTree<pcl::PointXYZ>::Ptr tree(new pcl::search::KdTree<pcl::PointXYZ>);
-        tree->setInputCloud(normals_root);//TODO: Might need to change.
-        normalEstimator_.setInputCloud(normals_root);
-        normalEstimator_.setSearchMethod(tree);
-        normalEstimator_.setRadiusSearch(0.015);
-        normalEstimator_.useSensorOriginAsViewPoint();
-        pcl::PointCloud<pcl::Normal>::Ptr cloud_normals(new pcl::PointCloud<pcl::Normal>);
-        normalEstimator_.compute(*cloud_normals);
-        proc_mtx_.lock();
-        clouds_processed_.push_back(make_tuple(fusion_frame_T_camera,cloud,cloud_normals,normals_root));
-        proc_mtx_.unlock();
+        std::this_thread::sleep_for(200ms);
+
+        // pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_bw (new pcl::PointCloud<pcl::PointXYZ>);
+        // auto cloud_input = PCLUtilities::pointCloud2ToPclXYZRGB(pcl_pc2);
+        // pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud(new pcl::PointCloud<pcl::PointXYZRGB>);
+        // for(int i=0;i<cloud_input.points.size();i++)
+        // {
+        //     auto point = cloud_input.points[i];
+        //     if(point.z<0.81&&point.z>0.28)//TODO: Change hardcoded values.
+        //     {
+        //         pcl::PointXYZ pt;
+        //         pt.x = point.x;
+        //         pt.y = point.y;
+        //         pt.z = point.z;
+        //         cloud_bw->points.push_back(pt);
+        //         cloud->points.push_back(point);
+        //     }
+        // }
+        // pcl::PointCloud<pcl::PointXYZ>::Ptr normals_root(new pcl::PointCloud<pcl::PointXYZ>);
+        // PCLUtilities::downsample_ptr<pcl::PointXYZ>(cloud_bw,normals_root,0.005);
+        // pcl::search::KdTree<pcl::PointXYZ>::Ptr tree(new pcl::search::KdTree<pcl::PointXYZ>);
+        // tree->setInputCloud(normals_root);//TODO: Might need to change.
+        // normalEstimator_.setInputCloud(normals_root);
+        // normalEstimator_.setSearchMethod(tree);
+        // normalEstimator_.setRadiusSearch(0.015);
+        // normalEstimator_.useSensorOriginAsViewPoint();
+        // pcl::PointCloud<pcl::Normal>::Ptr cloud_normals(new pcl::PointCloud<pcl::Normal>);
+        // normalEstimator_.compute(*cloud_normals);
+        // proc_mtx_.lock();
+        // clouds_processed_.push_back(make_tuple(fusion_frame_T_camera,cloud,cloud_normals,normals_root));
+        // proc_mtx_.unlock();
         counter++;
         // std::cout<<"Pointcloud "<<counter++<<" normals calculated.."<<std::endl;
     }
@@ -301,7 +318,7 @@ void PointcloudFusion::updateStates()
     }
 }
 
-void PointcloudFusion::onReceivedPointCloud(const sensor_msgs::PointCloud2Ptr& cloud_in)
+void PointcloudFusion::onReceivedPointCloud(sensor_msgs::PointCloud2Ptr cloud_in)
 {
     pointcloud_frame_ = cloud_in->header.frame_id;
     cloud_subscription_started_ = true;
@@ -319,8 +336,16 @@ void PointcloudFusion::onReceivedPointCloud(const sensor_msgs::PointCloud2Ptr& c
             ROS_WARN("%s", ex.what());
             return;
         }
+        counters++;
         mtx_.lock();
-        clouds_.push_back(make_pair(fusion_frame_T_camera,cloud_in));
+        if(counters%300==0)
+        {
+            std::vector<sensor_msgs::PointCloud2Ptr> temp;
+            clouds_test_cont.push_back(temp);
+        }
+        clouds_test_cont[clouds_test_cont.size()-1].push_back(cloud_in);
+        if(clouds_test_cont[0].size()==0)
+            clouds_test_cont.erase(clouds_test_cont.begin());
         mtx_.unlock();
     }
 }

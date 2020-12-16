@@ -29,7 +29,7 @@ using namespace std;
 using namespace pcl;
 using namespace Eigen;
 
-constexpr int kGoodPointsThreshold = 100;
+constexpr int kGoodPointsThreshold = 500;
 
 struct Voxel
 {
