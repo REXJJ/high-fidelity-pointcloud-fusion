@@ -289,20 +289,20 @@ void PointcloudFusion::onReceivedPointCloud(sensor_msgs::PointCloud2Ptr cloud_in
     cloud_subscription_started_ = true;
     if(start_)
     {
-        // Eigen::Affine3d fusion_frame_T_camera = Eigen::Affine3d::Identity();
-        // try
-        // {
-        //     geometry_msgs::TransformStamped transform_fusion_frame_T_camera = tf_buffer_.lookupTransform(fusion_frame_, cloud_in->header.frame_id,ros::Time(0));
-        //     // std::cout<<transform_fusion_frame_T_camera.header.stamp<<" --- "<<cloud_in->header.stamp<<" : "<<ros::Time::now()<<std::endl;
-        //     fusion_frame_T_camera = tf2::transformToEigen(transform_fusion_frame_T_camera); 
-        // }
-        // catch (tf2::TransformException& ex)
-        // {
-        //     ROS_WARN("%s", ex.what());
-        //     return;
-        // }
+        Eigen::Affine3d fusion_frame_T_camera = Eigen::Affine3d::Identity();
+        try
+        {
+            geometry_msgs::TransformStamped transform_fusion_frame_T_camera = tf_buffer_.lookupTransform(fusion_frame_, cloud_in->header.frame_id,ros::Time(0));
+            // std::cout<<transform_fusion_frame_T_camera.header.stamp<<" --- "<<cloud_in->header.stamp<<" : "<<ros::Time::now()<<std::endl;
+            fusion_frame_T_camera = tf2::transformToEigen(transform_fusion_frame_T_camera); 
+        }
+        catch (tf2::TransformException& ex)
+        {
+            ROS_WARN("%s", ex.what());
+            return;
+        }
         mtx_.lock();
-        clouds_.push_back(make_pair(Eigen::Affine3d::Identity(),cloud_in));
+        clouds_.push_back(make_pair(fusion_frame_T_camera,cloud_in));
         mtx_.unlock();
     }
 }
@@ -359,17 +359,18 @@ bool PointcloudFusion::getFusedCloud(std_srvs::TriggerRequest& req, std_srvs::Tr
         sleep(1);
     }
     std::cout<<"Downloading cloud."<<std::endl;
-    grid_.downloadHQCloud(combined_pcl_normals_);
+    grid_.downloadCloud(combined_pcl_normals_);
     pcl::io::savePCDFileASCII ("/home/rflin/Desktop/test_normals_combined.pcd",*combined_pcl_normals_);
-    pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr cloud_output(new pcl::PointCloud<pcl::PointXYZRGBNormal>);
-    grid_.downloadCloud(cloud_output);
-    pcl::io::savePCDFileASCII ("/home/rflin/Desktop/test_normals_combined_full.pcd",*cloud_output);
-    pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr cloud_output_reorganized(new pcl::PointCloud<pcl::PointXYZRGBNormal>);
-    grid_.downloadReorganizedCloud(cloud_output_reorganized);
-    pcl::io::savePCDFileASCII ("/home/rflin/Desktop/test_normals_combined_full_reorganized.pcd",*cloud_output_reorganized);
-    pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr cloud_output_reorganized_clean(new pcl::PointCloud<pcl::PointXYZRGBNormal>);
-    grid_.downloadReorganizedCloud(cloud_output_reorganized_clean,true);
-    pcl::io::savePCDFileASCII ("/home/rflin/Desktop/test_normals_combined_full_reorganized_clean.pcd",*cloud_output_reorganized_clean);
+    // pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr cloud_output(new pcl::PointCloud<pcl::PointXYZRGBNormal>);
+    // grid_.downloadCloud(cloud_output);
+    // pcl::io::savePCDFileASCII ("/home/rflin/Desktop/test_normals_combined_full.pcd",*cloud_output);
+    // pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr cloud_output_reorganized(new pcl::PointCloud<pcl::PointXYZRGBNormal>);
+    // grid_.downloadReorganizedCloud(cloud_output_reorganized);
+    // pcl::io::savePCDFileASCII ("/home/rflin/Desktop/test_normals_combined_full_reorganized.pcd",*cloud_output_reorganized);
+    // pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr cloud_output_reorganized_clean(new pcl::PointCloud<pcl::PointXYZRGBNormal>);
+    // grid_.downloadReorganizedCloud(cloud_output_reorganized_clean,true);
+    // pcl::io::savePCDFileASCII ("/home/rflin/Desktop/test_normals_combined_full_reorganized_clean.pcd",*cloud_output_reorganized_clean);
+    grid_.clearVoxels();
     // cloud_normals_output_dbg->height = 1;
     // cloud_normals_output_dbg->width = cloud_normals_output_dbg->points.size();
     // pcl::io::savePCDFileASCII ("/home/rflin/Desktop/test_normals_combined_full_raw_downsampled.pcd",*cloud_normals_output_dbg);

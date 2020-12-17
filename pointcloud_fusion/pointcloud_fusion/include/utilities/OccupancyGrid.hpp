@@ -35,7 +35,7 @@ struct Voxel
 {
     Vector3f normal;
     Vector3f centroid;
-    pcl::PointCloud<pcl::PointXYZRGB>::Ptr buffer;
+    vector<vector<float>> buffer;
     bool clear;
     bool occupied;
     bool normal_found;
@@ -48,7 +48,6 @@ struct Voxel
         occupied = false;
         normal_found = false;
         clear = false;
-        buffer.reset(new pcl::PointCloud<pcl::PointXYZRGB>);
     }
 };
 
@@ -79,6 +78,7 @@ class OccupancyGrid
 
     bool validCoords(int xid,int yid,int zid);
     bool validPoints(Vector3f point);
+    bool clearVoxels();
 
     bool addPoints(pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud);
     bool updateStates();
@@ -121,6 +121,69 @@ Eigen::Vector3f getNormal(const pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud)
   return {normal(0), normal(1), normal(2)};
 }
 
+Eigen::Vector3f getNormal(const pcl::PointCloud<pcl::PointXYZRGB>& cloud)
+{
+  Eigen::MatrixXd lhs (cloud.size(), 3);
+  Eigen::VectorXd rhs (cloud.size());
+  for (size_t i = 0; i < cloud.size(); ++i)
+  {
+    const auto& pt = cloud.points[i];
+    lhs(i, 0) = pt.x;
+    lhs(i, 1) = pt.y;
+    lhs(i, 2) = 1.0;
+
+    rhs(i) = -1.0 * pt.z;
+  }
+  Eigen::Vector3d params = lhs.jacobiSvd(Eigen::ComputeThinU | Eigen::ComputeThinV).solve(rhs);
+  Eigen::Vector3d normal (params(0), params(1), 1.0);
+  auto length = normal.norm();
+  normal /= length;
+  params(2) /= length;
+  return {normal(0), normal(1), normal(2)};
+}
+
+Eigen::Vector3f getNormal(const vector<pcl::PointXYZRGB>& cloud)
+{
+  Eigen::MatrixXd lhs (cloud.size(), 3);
+  Eigen::VectorXd rhs (cloud.size());
+  for (size_t i = 0; i < cloud.size(); ++i)
+  {
+    const auto& pt = cloud[i];
+    lhs(i, 0) = pt.x;
+    lhs(i, 1) = pt.y;
+    lhs(i, 2) = 1.0;
+
+    rhs(i) = -1.0 * pt.z;
+  }
+  Eigen::Vector3d params = lhs.jacobiSvd(Eigen::ComputeThinU | Eigen::ComputeThinV).solve(rhs);
+  Eigen::Vector3d normal (params(0), params(1), 1.0);
+  auto length = normal.norm();
+  normal /= length;
+  params(2) /= length;
+  return {normal(0), normal(1), normal(2)};
+}
+
+Eigen::Vector3f getNormal(const vector<vector<float>>& cloud)
+{
+  Eigen::MatrixXd lhs (cloud.size(), 3);
+  Eigen::VectorXd rhs (cloud.size());
+  for (size_t i = 0; i < cloud.size(); ++i)
+  {
+    const auto& pt = cloud[i];
+    lhs(i, 0) = pt[0];
+    lhs(i, 1) = pt[1];
+    lhs(i, 2) = 1.0;
+
+    rhs(i) = -1.0 * pt[2];
+  }
+  Eigen::Vector3d params = lhs.jacobiSvd(Eigen::ComputeThinU | Eigen::ComputeThinV).solve(rhs);
+  Eigen::Vector3d normal (params(0), params(1), 1.0);
+  auto length = normal.norm();
+  normal /= length;
+  params(2) /= length;
+  return {normal(0), normal(1), normal(2)};
+}
+
 Vector3f projectPointToVector(Vector3f pt, Vector3f norm_pt, Vector3f n)
 {
     Vector3f d_xyz = n*ball_radius;
@@ -152,14 +215,18 @@ bool OccupancyGrid::addPoints(pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud)
                     for(int j=-k_;j<=k_;j++)
                         for(int k=-k_;k<=k_;k++)
                         {
-                            //TODO: Assumes padding.
+                            //TODO: Add padding to stop this check.
+                            if(validCoords(x+i,y+j,z+k)==false)
+                                continue;
                             Voxel& voxel = voxels_[x+i][y+j][z+k];
                             if(voxel.normal_found==false)
                             {
-                                voxel.buffer->points.push_back(pt);
+                                vector<float> ptv = {pt.x,pt.y,pt.z};
+                                voxel.buffer.push_back(ptv);
                             }
                             else
                             {
+                                // std::cout<<"Loop coming here.."<<std::endl;
                                 Vector3f normal = voxel.normal;
                                 Vector3f centroid = {xmin_+xres_*(x+i)+xres_/2.0,ymin_+yres_*(y+j)+yres_/2.0,zmin_+zres_*(z+k)+zres_/2.0};
                                 Vector3f projected_points = projectPointToVector(point,centroid,normal);
@@ -183,26 +250,27 @@ bool OccupancyGrid::addPoints(pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud)
 bool OccupancyGrid::updateStates()
 {
     state_changed = false;
+    int counter = 0;
     for(int x=k_;x<xdim_-k_;x++)
         for(int y=k_;y<ydim_-k_;y++)
             for(int z=k_;z<zdim_-k_;z++)
                 {
-                    Voxel voxel = voxels_[x][y][z];
+                    Voxel& voxel = voxels_[x][y][z];
                     if(voxel.normal_found==false&&voxel.occupied==true)
                     {
                         //TODO: Find normal and use view point to orient it correctly.
                         //TODO: Update the centroids using the normal.
-                        if(voxel.buffer->points.size()>1000)
+                        if(voxel.buffer.size()>1000)
                         {
-                            pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud = voxel.buffer;
+                            auto cloud = voxel.buffer;
                             voxel.normal = getNormal(cloud);
                             voxel.normal_found = true;
                             voxel.count = 0;//TODO: Add the points in the cylinder here. 
                             Vector3f normal = voxel.normal;
                             Vector3f centroid = {xmin_+xres_*(x)+xres_/2.0,ymin_+yres_*(y)+yres_/2.0,zmin_+zres_*(z)+zres_/2.0};
-                            for(auto pt:voxel.buffer->points)
+                            for(auto pt:voxel.buffer)
                             {
-                                Vector3f point = {pt.x,pt.y,pt.z};
+                                Vector3f point = {pt[0],pt[1],pt[2]};
                                 Vector3f projected_points = projectPointToVector(point,centroid,normal);
                                 double distance_to_normal = (point - projected_points).norm();
                                 if(distance_to_normal<cylinder_radius)
@@ -211,10 +279,26 @@ bool OccupancyGrid::updateStates()
                                     voxel.centroid = voxel.centroid + (projected_points-voxel.centroid)/voxel.count;
                                 }
                             }
-                            voxel.buffer->points.clear();
+                            voxel.buffer.clear();
+                            voxel.buffer.resize(0);
+                            counter++;
                         }
                     }
                 }
+                std::cout<<"Voxels Cleared.."<<counter<<std::endl;
+}
+
+bool OccupancyGrid::clearVoxels()
+{
+    state_changed = false;
+    int counter = 0;
+    for(int x=k_;x<xdim_-k_;x++)
+        for(int y=k_;y<ydim_-k_;y++)
+            for(int z=k_;z<zdim_-k_;z++)
+                {
+                    voxels_[x][y][z].buffer.clear();
+                }
+                std::cout<<"All voxels cleared..."<<std::endl;
 }
 
 bool OccupancyGrid::updateStates(pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud, pcl::PointCloud<pcl::PointNormal>::Ptr normals)
@@ -366,6 +450,8 @@ bool OccupancyGrid::downloadCloud(pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr c
                     if(voxel.occupied==true)
                     {
                         pcl::PointXYZRGBNormal pt;
+                        auto centroid = getVoxelCenter(x,y,z);
+
                         pt.x = voxel.centroid(0);
                         pt.y = voxel.centroid(1);
                         pt.z = voxel.centroid(2);
