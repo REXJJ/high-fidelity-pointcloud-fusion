@@ -252,6 +252,4 @@ target_link_libraries(${firstfile} ${catkin_LIBRARIES})
 target_link_libraries(${firstfile} ${PCL_LIBRARIES} ${OpenCV_LIBS} -lrt)
 endfunction()
 
-create_exe(pointcloud_fusion)
-create_exe(pointcloud_fusion_normals)
 create_exe(pointcloud_fusion_and_filter)
