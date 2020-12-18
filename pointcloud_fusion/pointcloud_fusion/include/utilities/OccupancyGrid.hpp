@@ -64,7 +64,8 @@ class OccupancyGrid
     int xdim_,ydim_,zdim_;
     int k_;
     vector<vector<vector<Voxel>>> voxels_;
-    OccupancyGrid(){k_=2;xdim_=ydim_=zdim_=0;};//TODO: Get k_ at compile time.
+    int counter;
+    OccupancyGrid(){k_=2;xdim_=ydim_=zdim_=0;counter=0;};//TODO: Get k_ at compile time.
     void setDimensions(double xmin,double xmax,double ymin,double ymax,double zmin,double zmax);
     void setResolution(float x,float y,float z);
     bool construct();
@@ -88,8 +89,11 @@ bool OccupancyGrid::addPoints(pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud)
     //     default(none) \
     //         shared(cloud) \
     //         num_threads(8)
+    std::cout<<"Entered.."<<std::endl;
+    std::cout<<counter++<<std::endl;
     for(int p=0;p<cloud->points.size();p++)
     {
+        // std::cout<<p<<std::endl;
         auto pt = cloud->points[p];
         Vector3f point = {pt.x,pt.y,pt.z};
         int x,y,z;
@@ -116,6 +120,7 @@ bool OccupancyGrid::addPoints(pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud)
             //TODO: Allocate 1000 before hand.
         }
     }
+    std::cout<<"Exited.."<<std::endl;
     return true;
 }
 

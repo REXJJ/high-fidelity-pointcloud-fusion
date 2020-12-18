@@ -155,7 +155,7 @@ PointcloudFusion::PointcloudFusion(ros::NodeHandle& nh,const std::string& fusion
 	processed_cloud_ = nh.advertise<sensor_msgs::PointCloud2>("pcl_fusion_node/processed_cloud_normals",1);
     start_ = false;
     cloud_subscription_started_ = false;
-    grid_.setResolution(0.005,0.005,0.005);
+    grid_.setResolution(0.002,0.002,0.002);
     grid_.setDimensions(1.0,2.0,-0.5,0.5,0,0.5);
     grid_.construct();
     std::cout<<"Construction done.."<<std::endl;
