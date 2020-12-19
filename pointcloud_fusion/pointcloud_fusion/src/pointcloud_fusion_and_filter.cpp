@@ -155,7 +155,7 @@ PointcloudFusion::PointcloudFusion(ros::NodeHandle& nh,const std::string& fusion
 	processed_cloud_ = nh.advertise<sensor_msgs::PointCloud2>("pcl_fusion_node/processed_cloud_normals",1);
     start_ = false;
     cloud_subscription_started_ = false;
-    grid_.setResolution(0.002,0.002,0.002);
+    grid_.setResolution(0.005,0.005,0.005);
     grid_.setDimensions(1.0,2.0,-0.5,0.5,0,0.5);
     grid_.construct();
     std::cout<<"Construction done.."<<std::endl;
@@ -163,7 +163,7 @@ PointcloudFusion::PointcloudFusion(ros::NodeHandle& nh,const std::string& fusion
     box_filter_.setMax(Eigen::Vector4f(10, 10, 0.81, 1.0));
     threads_.push_back(std::thread(&PointcloudFusion::addPoints, this));
     threads_.push_back(std::thread(&PointcloudFusion::updateStates, this));
-    // threads_.push_back(std::thread(&PointcloudFusion::cleanGrid,this));
+    threads_.push_back(std::thread(&PointcloudFusion::cleanGrid,this));
 }
 vector<int> splitRGBData(float rgb)
 {
@@ -227,7 +227,7 @@ void PointcloudFusion::addPoints()
             clouds_.erase(clouds_.begin());
             clouds_.shrink_to_fit();
             received_data = true;
-            std::cout<<"Pointcloud "<<counter++<<" added.."<<std::endl;
+            // std::cout<<"Pointcloud "<<counter++<<" added.."<<std::endl;
         }
         mtx_.unlock();
         if(received_data==false)
@@ -243,7 +243,6 @@ void PointcloudFusion::addPoints()
         pcl_conversions::toPCL(*cloud_in, pcl_pc2); 
 
         auto cloud = pointCloud2ToPclXYZRGBOMP(pcl_pc2);
-        std::cout<<"Reached Here.."<<std::endl;
         pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud_clipped(new pcl::PointCloud<pcl::PointXYZRGB>);
         // boxFilter.setInputCloud(body);
         // boxFilter.filter(*bodyFiltered);
@@ -290,16 +289,20 @@ void PointcloudFusion::updateStates()
         grid_.addPoints(cloud_transformed);
         grid_mtx_.unlock();
         counter++;
-        std::cout<<"Pointcloud "<<counter++<<" states updated.."<<std::endl;
+        // std::cout<<"Pointcloud "<<counter++<<" states updated.."<<std::endl;
     }
 }
 
 void PointcloudFusion::cleanGrid()
 {
-    int counter = 0;
     while(ros::ok())
     {
-        sleep(5);
+        grid_mtx_.lock();
+        if(grid_.state_changed)
+            grid_.updateStates();
+        grid_mtx_.unlock();
+        std::cout<<"Grid Cleaned.."<<std::endl;
+        sleep(5);    
     }
 }
 
@@ -379,6 +382,7 @@ bool PointcloudFusion::getFusedCloud(std_srvs::TriggerRequest& req, std_srvs::Tr
     cloud->height = 1;
     cloud->width = cloud->points.size();
     pcl::io::savePCDFileASCII ("/home/rflin/Desktop/test_cloud.pcd",*cloud);
+    grid_.clearVoxels();
     return true;
 }
 
