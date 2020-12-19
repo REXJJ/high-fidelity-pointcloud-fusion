@@ -165,6 +165,53 @@ PointcloudFusion::PointcloudFusion(ros::NodeHandle& nh,const std::string& fusion
     threads_.push_back(std::thread(&PointcloudFusion::updateStates, this));
     // threads_.push_back(std::thread(&PointcloudFusion::cleanGrid,this));
 }
+vector<int> splitRGBData(float rgb)
+{
+    uint32_t data = *reinterpret_cast<int*>(&rgb);
+    vector<int> d;
+    int a[3]={16,8,1};
+    for(int i=0;i<3;i++)
+    {
+        d.push_back((data>>a[i]) & 0x0000ff);
+    }
+    return d;
+}
+
+pcl::PointCloud<pcl::PointXYZRGB> pointCloud2ToPclXYZRGBOMP(const pcl::PCLPointCloud2& p)
+{
+    pcl::PointCloud<pcl::PointXYZRGB> cloud;
+    cloud.points.resize(p.row_step/p.point_step);
+    #pragma omp parallel for \ 
+        default(none) \
+            shared(cloud,p) \
+            num_threads(8)
+    for(int i=0;i<p.row_step;i+=p.point_step)
+    {
+        vector<float> t;
+        for(int j=0;j<3;j++)
+        {
+            if(p.fields[j].count==0)
+            {
+                continue;
+            }
+            float x;
+            memcpy(&x,&p.data[i+p.fields[j].offset],sizeof(float));
+            t.push_back(x);
+        }
+        float rgb_data;
+        memcpy(&rgb_data,&p.data[i+p.fields[3].offset],sizeof(float));
+        vector<int> c = splitRGBData(rgb_data);    
+        pcl::PointXYZRGB point;
+        point.x = t[0];
+        point.y = t[1];
+        point.z = t[2];
+        uint32_t rgb = (static_cast<uint32_t>(c[0]) << 16 |
+                static_cast<uint32_t>(c[1]) << 8 | static_cast<uint32_t>(c[2]));
+        point.rgb = *reinterpret_cast<float*>(&rgb);
+        cloud.points[i/p.point_step] = point;  
+    }
+    return cloud;
+}   
 
 void PointcloudFusion::addPoints()
 {
@@ -178,6 +225,7 @@ void PointcloudFusion::addPoints()
         {
             cloud_data = clouds_[0];
             clouds_.erase(clouds_.begin());
+            clouds_.shrink_to_fit();
             received_data = true;
             std::cout<<"Pointcloud "<<counter++<<" added.."<<std::endl;
         }
@@ -194,7 +242,8 @@ void PointcloudFusion::addPoints()
         fusion_frame_T_camera = cloud_data.first;
         pcl_conversions::toPCL(*cloud_in, pcl_pc2); 
 
-        auto cloud = PCLUtilities::pointCloud2ToPclXYZRGB(pcl_pc2);
+        auto cloud = pointCloud2ToPclXYZRGBOMP(pcl_pc2);
+        std::cout<<"Reached Here.."<<std::endl;
         pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud_clipped(new pcl::PointCloud<pcl::PointXYZRGB>);
         // boxFilter.setInputCloud(body);
         // boxFilter.filter(*bodyFiltered);
@@ -329,7 +378,7 @@ bool PointcloudFusion::getFusedCloud(std_srvs::TriggerRequest& req, std_srvs::Tr
     grid_mtx_.unlock();
     cloud->height = 1;
     cloud->width = cloud->points.size();
-    pcl::io::savePCDFileASCII ("/home/rex/Desktop/test_cloud.pcd",*cloud);
+    pcl::io::savePCDFileASCII ("/home/rflin/Desktop/test_cloud.pcd",*cloud);
     return true;
 }
 

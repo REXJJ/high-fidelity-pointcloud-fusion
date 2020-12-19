@@ -89,8 +89,6 @@ bool OccupancyGrid::addPoints(pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud)
     //     default(none) \
     //         shared(cloud) \
     //         num_threads(8)
-    std::cout<<"Entered.."<<std::endl;
-    std::cout<<counter++<<std::endl;
     for(int p=0;p<cloud->points.size();p++)
     {
         // std::cout<<p<<std::endl;
@@ -120,7 +118,6 @@ bool OccupancyGrid::addPoints(pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud)
             //TODO: Allocate 1000 before hand.
         }
     }
-    std::cout<<"Exited.."<<std::endl;
     return true;
 }
 
@@ -169,12 +166,13 @@ bool OccupancyGrid::construct()
     xdim_ = (xmax_-xmin_)/xres_;
     ydim_ = (ymax_-ymin_)/yres_;
     zdim_ = (zmax_-zmin_)/zres_;
-    voxels_=vector<vector<vector<Voxel>>>(xdim_, vector<vector<Voxel>>(ydim_, vector<Voxel>(zdim_,Voxel())));
+    voxels_=vector<vector<vector<Voxel>>>(xdim_+1, vector<vector<Voxel>>(ydim_+1, vector<Voxel>(zdim_+1,Voxel())));
     return true;
 }
 
 inline tuple<int,int,int> OccupancyGrid::getVoxelCoords(Vector3f point)
 {
+    //TODO: Verify if this is fine. 
     int xv = floor((point(0)-xmin_)/xres_);
     int yv = floor((point(1)-ymin_)/yres_);
     int zv = floor((point(2)-zmin_)/zres_);
