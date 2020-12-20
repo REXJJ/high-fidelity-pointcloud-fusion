@@ -66,6 +66,7 @@ struct VoxelInfo
     {
         normal_found = false;
         count = 0;
+        centroid = {0,0,0};
     }
 };
 
@@ -90,6 +91,8 @@ class OccupancyGrid
     bool updateStates();
     bool clearVoxels();
     bool download(pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud);
+    bool download(pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr cloud);
+    bool downloadHQ(pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud);
     Vector3f getVoxelCenter(int x,int y,int z)
     {
         Vector3f centroid = {xmin_+xres_*(x)+xres_/2.0,ymin_+yres_*(y)+yres_/2.0,zmin_+zres_*(z)+zres_/2.0};
@@ -107,15 +110,8 @@ bool OccupancyGrid::clearVoxels()
                     if(voxels_[x][y][z].occupied==true)
                     {
                         VoxelInfo* data = reinterpret_cast<VoxelInfo*>(voxels_[x][y][z].data);
-                        data->buffer.clear();
-                        data->buffer.shrink_to_fit();
-                        VoxelInfo* new_data = new VoxelInfo();
-                        new_data->normal = data->normal;
-                        new_data->centroid = data->centroid;
-                        new_data->count = data->count;
-                        new_data->normal_found = data->normal_found;
                         delete data;
-                        voxels_[x][y][z].data = reinterpret_cast<void*>(new_data);
+                        voxels_[x][y][z].data = nullptr;
                     }
                 }
                 std::cout<<"All voxels cleared..."<<std::endl;
@@ -143,19 +139,14 @@ bool OccupancyGrid::addPoints(pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud)
         if(voxel.occupied==true)
         {
             VoxelInfo* data = reinterpret_cast<VoxelInfo*>(voxel.data);
-            if(data->normal_found==false)
-            {
+            if(data->buffer.size()>0)
                 data->buffer.push_back(ptv);
-            }
-            // else
-            // {
-            //     //TODO: Average the points along the normals.
-            // }
         }
         else
         {
             voxel.occupied = true;
             VoxelInfo* data = new VoxelInfo();
+            // data->buffer.reserve(1000);
             data->buffer.push_back(ptv);
             voxels_[x][y][z].data = reinterpret_cast<void*>(data);
             //TODO: Allocate 1000 before hand.
@@ -167,7 +158,6 @@ bool OccupancyGrid::addPoints(pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud)
 bool OccupancyGrid::updateStates()
 {
     state_changed = false;
-    std::cout<<"Inside"<<std::endl;
     //TODO: Use hashing.
     for(int x=k_;x<xdim_-k_;x++)
         for(int y=k_;y<ydim_-k_;y++)
@@ -177,10 +167,9 @@ bool OccupancyGrid::updateStates()
                     if(voxel.occupied==true)
                     {
                         VoxelInfo* data = reinterpret_cast<VoxelInfo*>(voxel.data);
-                        if(data->normal_found==true)
-                            continue;
                         int total = 0;
-                        //TODO: Replace this hideos loop with something better: templates with par for might be a good option.
+                        //TODO: Replace this hideous loop with something better: templates with par for might be a good option.
+                        bool neighbors_done = true;
                         for(int i=k_;i<=k_;i++)
                             for(int j=k_;j<=k_;j++)
                                 for(int k=k_;k<=k_;k++)
@@ -188,36 +177,43 @@ bool OccupancyGrid::updateStates()
                                     if(validCoord(x+i,y+j,z+k))
                                     {
                                         Voxel voxel_neighbor = voxels_[x+i][y+j][z+k];
-                                        total+=(reinterpret_cast<VoxelInfo*>(voxel_neighbor.data))->buffer.size();
-                                    }
-                                }
-                        std::cout<<total<<std::endl;
-
-                        if(total>1000)
-                        {
-                        Eigen::MatrixXd lhs (total, 3);
-                        Eigen::VectorXd rhs (total);
-                        //TODO: Replace this hideos loop with something better: templates with par for might be a good option.
-                        int counter = 0;
-                        for(int i=k_;i<=k_;i++)
-                            for(int j=k_;j<=k_;j++)
-                                for(int k=k_;k<=k_;k++)
-                                {
-                                    if(validCoord(x+i,y+j,z+k))
-                                    {
-                                        Voxel voxel_neighbor = voxels_[x+i][y+j][z+k];
-                                        VoxelInfo* data = reinterpret_cast<VoxelInfo*>(voxel_neighbor.data);
-                                        for(auto x:data->buffer)
+                                        if(voxel_neighbor.occupied==true)
                                         {
-                                            lhs(counter,0) = x(0);
-                                            lhs(counter,1) = x(1);
-                                            lhs(counter,2) = 1.0;
-                                            rhs(counter++) = -1.0*x(2);
+                                            VoxelInfo* neighbor_data = reinterpret_cast<VoxelInfo*>(voxel_neighbor.data);
+                                            total+=neighbor_data->buffer.size();
+                                            if(neighbor_data->normal_found==false)
+                                                neighbors_done = false;
                                         }
                                     }
                                 }
 
-                            Eigen::Vector3d params = lhs.jacobiSvd(Eigen::ComputeThinU | Eigen::ComputeThinV).solve(rhs);
+                        if(total>1000&&data->normal_found==false)
+                        {
+                            // std::cout<<"Reaching Here.."<<std::endl;
+                            // std::cout<<"Total: "<<total<<std::endl;
+                            Eigen::MatrixXd lhs (total, 3);
+                            Eigen::VectorXd rhs (total);
+                            //TODO: Replace this hideos loop with something better: templates with par for might be a good option.
+                            int counter = 0;
+                            for(int i=k_;i<=k_;i++)
+                                for(int j=k_;j<=k_;j++)
+                                    for(int k=k_;k<=k_;k++)
+                                    {
+                                        if(validCoord(x+i,y+j,z+k))
+                                        {
+                                            Voxel voxel_neighbor = voxels_[x+i][y+j][z+k];
+                                            VoxelInfo* data = reinterpret_cast<VoxelInfo*>(voxel_neighbor.data);
+                                            for(auto x:data->buffer)
+                                            {
+                                                lhs(counter,0) = x(0);
+                                                lhs(counter,1) = x(1);
+                                                lhs(counter,2) = 1.0;
+                                                rhs(counter++) = -1.0*x(2);
+                                            }
+                                        }
+                                    }
+
+                            Eigen::Vector3d params = lhs.jacobiSvd(Eigen::ComputeThinU | Eigen::ComputeThinV).solve(rhs);//Jacobi SVD
                             Eigen::Vector3f normal (params(0), params(1), 1.0);
                             auto length = normal.norm();
                             normal /= length;
@@ -234,15 +230,18 @@ bool OccupancyGrid::updateStates()
                                     data->centroid = data->centroid + (projected_points-data->centroid)/data->count;
                                 }
                             }
-                            data->buffer.clear();
-                            data->buffer.shrink_to_fit();
-                            VoxelInfo* new_data = new VoxelInfo();
-                            new_data->normal = data->normal;
-                            new_data->centroid = data->centroid;
-                            new_data->count = data->count;
-                            new_data->normal_found = data->normal_found;
-                            delete data;
-                            voxels_[x][y][z].data = reinterpret_cast<void*>(new_data);
+                            if(neighbors_done)
+                            {
+                                data->buffer.clear();
+                                data->buffer.shrink_to_fit();
+                                VoxelInfo* new_data = new VoxelInfo();
+                                new_data->normal = data->normal;
+                                new_data->centroid = data->centroid;
+                                new_data->count = data->count;
+                                new_data->normal_found = data->normal_found;
+                                delete data;
+                                voxels_[x][y][z].data = reinterpret_cast<void*>(new_data);
+                            }
                         }
                     }
                 }
@@ -258,13 +257,68 @@ bool OccupancyGrid::download(pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud)
                 if(voxels_[x][y][z].occupied)
                 {
                     VoxelInfo* data = reinterpret_cast<VoxelInfo*>(voxels_[x][y][z].data);
-                    std::cout<<data->buffer.size()<<std::endl;
-                    // assert(data->buffer.size()>0);
+                    if(data->normal_found==false)
+                        continue;
                     pcl::PointXYZRGB pt;
-                    auto point = getVoxelCenter(x,y,z);
+                    auto point = data->centroid;
+                    // auto point = getVoxelCenter(x,y,z);
+                    std::cout<<point<<std::endl;
                     pt.x = point(0);
                     pt.y = point(1);
                     pt.z = point(2);
+                    cloud->points.push_back(pt);
+                }
+    std::cout<<"Points: "<<cloud->points.size()<<std::endl;
+}
+
+bool OccupancyGrid::downloadHQ(pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud)
+{
+    if(cloud==nullptr)
+        return false;
+    for(int x=0;x<xdim_;x++)
+        for(int y=0;y<ydim_;y++)
+            for(int z=0;z<zdim_;z++)
+                if(voxels_[x][y][z].occupied)
+                {
+                    VoxelInfo* data = reinterpret_cast<VoxelInfo*>(voxels_[x][y][z].data);
+                    if(data->normal_found==false)
+                        continue;
+                    if(data->count<100)
+                        continue;
+                    pcl::PointXYZRGB pt;
+                    auto point = data->centroid;
+                    // auto point = getVoxelCenter(x,y,z);
+                    std::cout<<point<<std::endl;
+                    pt.x = point(0);
+                    pt.y = point(1);
+                    pt.z = point(2);
+                    cloud->points.push_back(pt);
+                }
+    std::cout<<"Points: "<<cloud->points.size()<<std::endl;
+}
+
+bool OccupancyGrid::download(pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr cloud)
+{
+    if(cloud==nullptr)
+        return false;
+    for(int x=0;x<xdim_;x++)
+        for(int y=0;y<ydim_;y++)
+            for(int z=0;z<zdim_;z++)
+                if(voxels_[x][y][z].occupied)
+                {
+                    VoxelInfo* data = reinterpret_cast<VoxelInfo*>(voxels_[x][y][z].data);
+                    if(data->normal_found==false)
+                        continue;
+                    pcl::PointXYZRGBNormal pt;
+                    // auto point = data->centroid;
+                    auto point = getVoxelCenter(x,y,z);
+                    std::cout<<point<<std::endl;
+                    pt.x = point(0);
+                    pt.y = point(1);
+                    pt.z = point(2);
+                    pt.normal[0] = data->normal(0);
+                    pt.normal[1] = data->normal(1);
+                    pt.normal[2] = data->normal(2);
                     cloud->points.push_back(pt);
                 }
     std::cout<<"Points: "<<cloud->points.size()<<std::endl;

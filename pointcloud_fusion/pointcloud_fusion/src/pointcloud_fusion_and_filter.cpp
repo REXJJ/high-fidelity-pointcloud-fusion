@@ -289,7 +289,7 @@ void PointcloudFusion::updateStates()
         grid_.addPoints(cloud_transformed);
         grid_mtx_.unlock();
         counter++;
-        // std::cout<<"Pointcloud "<<counter++<<" states updated.."<<std::endl;
+        std::cout<<"Pointcloud "<<counter++<<" states updated.."<<std::endl;
     }
 }
 
@@ -376,12 +376,18 @@ bool PointcloudFusion::getFusedCloud(std_srvs::TriggerRequest& req, std_srvs::Tr
     }
     std::cout<<"Downloading cloud."<<std::endl;
     pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud(new pcl::PointCloud<pcl::PointXYZRGB>);
+    pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr cloud_normals(new pcl::PointCloud<pcl::PointXYZRGBNormal>);
     grid_mtx_.lock();
-    grid_.download(cloud);
+    grid_.downloadHQ(cloud);
+    grid_.download(cloud_normals);
     grid_mtx_.unlock();
     cloud->height = 1;
     cloud->width = cloud->points.size();
-    pcl::io::savePCDFileASCII ("/home/rflin/Desktop/test_cloud.pcd",*cloud);
+    cloud_normals->height = 1;
+    cloud_normals->width = cloud_normals->points.size();
+    // pcl::io::savePCDFileASCII ("/home/rflin/Desktop/test_cloud.pcd",*cloud);
+    pcl::io::savePCDFileASCII ("/home/rex/Desktop/test_cloud.pcd",*cloud);
+    pcl::io::savePCDFileASCII ("/home/rex/Desktop/test_cloud_normals.pcd",*cloud_normals);
     grid_.clearVoxels();
     return true;
 }
