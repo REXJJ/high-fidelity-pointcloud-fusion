@@ -72,39 +72,63 @@ struct VoxelInfo
 
 class OccupancyGrid
 {
+    private:
+        vector<int> dx,dy,dz;
     public:
-    double xmin_,xmax_,ymin_,ymax_,zmin_,zmax_;
-    double xres_,yres_,zres_;
-    int xdim_,ydim_,zdim_;
-    int k_;
-    vector<vector<vector<Voxel>>> voxels_;
-    int counter;
-    bool state_changed;
-    OccupancyGrid(){k_=2;xdim_=ydim_=zdim_=0;counter=0;state_changed=false;};//TODO: Get k_ at compile time.
-    void setDimensions(double xmin,double xmax,double ymin,double ymax,double zmin,double zmax);
-    void setResolution(float x,float y,float z);
-    bool construct();
-    tuple<int,int,int> getVoxelCoords(Vector3f point);
-    tuple<int,int,int> getVoxelCoords(unsigned long long int hash);
-    unsigned long long int getHashId(int x,int y,int z);
-    bool validPoints(Vector3f point);
-    bool validCoord(int x,int y,int z);
-    bool addPoints(pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud);
-    bool addPointsOMP(pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud);
-    bool updateStatesOMP();
-    bool updateStates();
-    bool clearVoxels();
-    bool download(pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud);
-    bool download(pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr cloud);
-    bool downloadHQ(pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud);
-    unordered_set<unsigned long long int> unprocessed_data_;
-    Vector3f getVoxelCenter(int x,int y,int z)
-    {
-        Vector3f centroid = {xmin_+xres_*(x)+xres_/2.0,ymin_+yres_*(y)+yres_/2.0,zmin_+zres_*(z)+zres_/2.0};
-        return centroid;
-    }
+        double xmin_,xmax_,ymin_,ymax_,zmin_,zmax_;
+        double xres_,yres_,zres_;
+        int xdim_,ydim_,zdim_;
+        int k_;
+        vector<vector<vector<Voxel>>> voxels_;
+        int counter;
+        bool state_changed;
+        OccupancyGrid(){k_=2;xdim_=ydim_=zdim_=0;counter=0;state_changed=false;};//TODO: Get k_ at compile time.
+        void setDimensions(double xmin,double xmax,double ymin,double ymax,double zmin,double zmax);
+        void setResolution(float x,float y,float z);
+        bool construct();
+        tuple<int,int,int> getVoxelCoords(Vector3f point);
+        tuple<int,int,int> getVoxelCoords(unsigned long long int hash);
+        unsigned long long int getHashId(int x,int y,int z);
+        bool validPoints(Vector3f point);
+        bool validCoord(int x,int y,int z);
+        bool addPoints(pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud);
+        template<int N> bool updateStates();
+        bool clearVoxels();
+        bool download(pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud);
+        bool download(pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr cloud);
+        bool downloadHQ(pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud);
+        bool setK(int k);
+        unordered_set<unsigned long long int> unprocessed_data_;
+        Vector3f getVoxelCenter(int x,int y,int z)
+        {
+            Vector3f centroid = {xmin_+xres_*(x)+xres_/2.0,ymin_+yres_*(y)+yres_/2.0,zmin_+zres_*(z)+zres_/2.0};
+            return centroid;
+        }
 };
 
+bool OccupancyGrid::setK(int k)
+{
+    k_ = k;
+    for(int i=-k_;i<=k_;i++)
+        for(int j=-k_;j<=k_;j++)
+            for(int k=-k_;k<=k_;k++)
+            {
+                dx.push_back(i);
+                dy.push_back(j);
+                dz.push_back(k);
+            }
+    std::cout<<"D vectors: "<<std::endl;
+    std::cout<<"Size of D vectors: "<<dx.size()<<std::endl;
+    for(auto x:dx)
+        std::cout<<x<<" "<<std::endl;
+    std::cout<<"-------------------------"<<std::endl;
+    for(auto y:dy)
+        std::cout<<y<<" "<<std::endl;
+    std::cout<<"-------------------------"<<std::endl;
+    for(auto z:dz)
+        std::cout<<z<<" "<<std::endl;
+    std::cout<<"-------------------------"<<std::endl;
+}
 
 inline unsigned long long int OccupancyGrid::getHashId(int x,int y,int z)
 {
@@ -182,213 +206,41 @@ bool OccupancyGrid::addPoints(pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud)
         }
         //TODO: Check state before doing this..
         //TODO: This is a big bottle neck. 
-        for(int i=-k_;i<=k_;i++)
-            for(int j=-k_;j<=k_;j++)
-                for(int k=-k_;k<=k_;k++)
-                {
-                    if(validCoord(x+i,y+j,z+k))
-                    {
-                        // std::cout<<x+i<<" "<<y+j<<" "<<z+k<<std::endl;
-                        Voxel voxel_neighbor = voxels_[x+i][y+j][z+k];
-                        if(voxel_neighbor.occupied==true)
-                        {
-                            // std::cout<<"Here"<<std::endl;
-                            VoxelInfo* neighbor_data = reinterpret_cast<VoxelInfo*>(voxel_neighbor.data);
-                            if(neighbor_data->normal_found==true)
-                            {
-                                // std::cout<<"Here 2"<<std::endl;
-                                Vector3f centroid = {xmin_+xres_*(x+i)+xres_/2.0,ymin_+yres_*(y+j)+yres_/2.0,zmin_+zres_*(z+k)+zres_/2.0};
-                                Vector3f projected_points = projectPointToVector(ptv,centroid,neighbor_data->normal);
-                                double distance_to_normal = (ptv - projected_points).norm();
-                                // std::cout<<distance_to_normal<<std::endl;
-                                if(distance_to_normal<kCylinderRadius)
-                                {
-                                    neighbor_data->count++;
-                                    neighbor_data->centroid = neighbor_data->centroid + (projected_points-neighbor_data->centroid)/neighbor_data->count;
-                                }
-                            }
-                        }
-                    }
-                }
-
-    }
-    return true;
-}
-
-bool OccupancyGrid::addPointsOMP(pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud)
-{
-    if(cloud==nullptr)
-        return false;
-    state_changed = true;
-    for(int p=0;p<cloud->points.size();p++)
-    {
-        auto pt = cloud->points[p];
-        Vector3f point = {pt.x,pt.y,pt.z};
-        int x,y,z;
-        tie(x,y,z) = getVoxelCoords(point);
-        if(validPoints(point)==false)
-            continue;
-        unsigned long long int hash = getHashId(x,y,z);
-        Voxel& voxel = voxels_[x][y][z];
-        Vector3f ptv = {pt.x,pt.y,pt.z};
-        if(voxel.occupied==true)
+        for(int d=0;d<dx.size();d++)
         {
-            VoxelInfo* data = reinterpret_cast<VoxelInfo*>(voxel.data);
-            if(data->normal_found==false)
-                data->buffer.push_back(ptv);
-            else
-                if(unprocessed_data_.find(hash)!=unprocessed_data_.end())
-                    unprocessed_data_.erase(hash);
-        }
-        else
-        {
-            voxel.occupied = true;
-            unprocessed_data_.insert(hash);
-            VoxelInfo* data = new VoxelInfo();
-            // data->buffer.reserve(1000);
-            data->buffer.push_back(ptv);
-            unprocessed_data_.insert(hash);
-            voxels_[x][y][z].data = reinterpret_cast<void*>(data);
-            //TODO: Allocate 1000 before hand.
-        }
-        //TODO: Check state before doing this..
-        for(int i=-k_;i<=k_;i++)
-            for(int j=-k_;j<=k_;j++)
-                for(int k=-k_;k<=k_;k++)
-                {
-                    if(validCoord(x+i,y+j,z+k))
-                    {
-                        // std::cout<<x+i<<" "<<y+j<<" "<<z+k<<std::endl;
-                        Voxel voxel_neighbor = voxels_[x+i][y+j][z+k];
-                        if(voxel_neighbor.occupied==true)
-                        {
-                            // std::cout<<"Here"<<std::endl;
-                            VoxelInfo* neighbor_data = reinterpret_cast<VoxelInfo*>(voxel_neighbor.data);
-                            if(neighbor_data->normal_found==true)
-                            {
-                                // std::cout<<"Here 2"<<std::endl;
-                                Vector3f centroid = {xmin_+xres_*(x+i)+xres_/2.0,ymin_+yres_*(y+j)+yres_/2.0,zmin_+zres_*(z+k)+zres_/2.0};
-                                Vector3f projected_points = projectPointToVector(ptv,centroid,neighbor_data->normal);
-                                double distance_to_normal = (ptv - projected_points).norm();
-                                // std::cout<<distance_to_normal<<std::endl;
-                                if(distance_to_normal<kCylinderRadius)
-                                {
-                                    neighbor_data->count++;
-                                    neighbor_data->centroid = neighbor_data->centroid + (projected_points-neighbor_data->centroid)/neighbor_data->count;
-                                }
-                            }
-                        }
-                    }
-                }
-
-    }
-    return true;
-}
-
-
-bool OccupancyGrid::updateStates()
-{
-    state_changed = false;
-    //TODO: Use hashing.
-    // #pragma omp parallel for \ 
-    // default(none) \
-    //     num_threads(4)
-    for (auto itr = unprocessed_data_.begin(); itr != unprocessed_data_.end(); ++itr)
-    {
-        int x,y,z;
-        tie(x,y,z) = getVoxelCoords(*itr);
-        Voxel& voxel = voxels_[x][y][z];
-        if(voxel.occupied==true)
-        {
-            VoxelInfo* data = reinterpret_cast<VoxelInfo*>(voxel.data);
-            int total = 0;
-            //TODO: Replace this hideous loop with something better: templates with par for might be a good option.
-            bool neighbors_done = true;
-            for(int i=-k_;i<=k_;i++)
-                for(int j=-k_;j<=k_;j++)
-                    for(int k=-k_;k<=k_;k++)
-                    {
-                        if(validCoord(x+i,y+j,z+k))
-                        {
-                            Voxel voxel_neighbor = voxels_[x+i][y+j][z+k];
-                            if(voxel_neighbor.occupied==true)
-                            {
-                                VoxelInfo* neighbor_data = reinterpret_cast<VoxelInfo*>(voxel_neighbor.data);
-                                total+=neighbor_data->buffer.size();
-                                if(neighbor_data->normal_found==false)
-                                    neighbors_done = false;
-                            }
-                        }
-                    }
-
-            // std::cout<<"Total: "<<total<<std::endl;
-
-            if(total>1000&&data->normal_found==false)
+            int i = dx[d];
+            int j = dy[d];
+            int k = dz[d];
+            if(validCoord(x+i,y+j,z+k))
             {
-                // std::cout<<"Reaching Here.."<<std::endl;
-                // std::cout<<"Total: "<<total<<std::endl;
-                Eigen::MatrixXd lhs (total, 3);
-                Eigen::VectorXd rhs (total);
-                //TODO: Replace this hideos loop with something better: templates with par for might be a good option.
-                int counter = 0;
-                for(int i=-k_;i<=k_;i++)
-                    for(int j=-k_;j<=k_;j++)
-                        for(int k=-k_;k<=k_;k++)
-                        {
-                            if(validCoord(x+i,y+j,z+k))
-                            {
-                                // std::cout<<x+i<<" "<<y+j<<" "<<z+k<<std::endl;
-                                Voxel voxel_neighbor = voxels_[x+i][y+j][z+k];
-                                if(voxel_neighbor.occupied==false)
-                                    continue;
-                                VoxelInfo* data = reinterpret_cast<VoxelInfo*>(voxel_neighbor.data);
-                                for(auto x:data->buffer)
-                                {
-                                    lhs(counter,0) = x(0);
-                                    lhs(counter,1) = x(1);
-                                    lhs(counter,2) = 1.0;
-                                    rhs(counter++) = -1.0*x(2);
-                                }
-                            }
-                        }
-
-                // std::cout<<"Total: "<<total<<" "<<counter<<std::endl;
-
-                Eigen::Vector3d params = lhs.jacobiSvd(Eigen::ComputeThinU | Eigen::ComputeThinV).solve(rhs);//Jacobi SVD
-                Eigen::Vector3f normal (params(0), params(1), 1.0);
-                auto length = normal.norm();
-                normal /= length;
-                data->normal = normal;
-                data->normal_found = true;
-                Vector3f centroid = {xmin_+xres_*(x)+xres_/2.0,ymin_+yres_*(y)+yres_/2.0,zmin_+zres_*(z)+zres_/2.0};
-                for(auto pt:data->buffer)
+                // std::cout<<x+i<<" "<<y+j<<" "<<z+k<<std::endl;
+                Voxel voxel_neighbor = voxels_[x+i][y+j][z+k];
+                if(voxel_neighbor.occupied==true)
                 {
-                    Vector3f projected_points = projectPointToVector(pt,centroid,normal);
-                    double distance_to_normal = (pt - projected_points).norm();
-                    if(distance_to_normal<kCylinderRadius)
+                    // std::cout<<"Here"<<std::endl;
+                    VoxelInfo* neighbor_data = reinterpret_cast<VoxelInfo*>(voxel_neighbor.data);
+                    if(neighbor_data->normal_found==true)
                     {
-                        data->count++;
-                        data->centroid = data->centroid + (projected_points-data->centroid)/data->count;
+                        // std::cout<<"Here 2"<<std::endl;
+                        Vector3f centroid = {xmin_+xres_*(x+i)+xres_/2.0,ymin_+yres_*(y+j)+yres_/2.0,zmin_+zres_*(z+k)+zres_/2.0};
+                        Vector3f projected_points = projectPointToVector(ptv,centroid,neighbor_data->normal);
+                        double distance_to_normal = (ptv - projected_points).norm();
+                        // std::cout<<distance_to_normal<<std::endl;
+                        if(distance_to_normal<kCylinderRadius)
+                        {
+                            neighbor_data->count++;
+                            neighbor_data->centroid = neighbor_data->centroid + (projected_points-neighbor_data->centroid)/neighbor_data->count;
+                        }
                     }
-                }
-                if(neighbors_done)
-                {
-                    data->buffer.clear();
-                    data->buffer.shrink_to_fit();
-                    VoxelInfo* new_data = new VoxelInfo();
-                    new_data->normal = data->normal;
-                    new_data->centroid = data->centroid;
-                    new_data->count = data->count;
-                    new_data->normal_found = data->normal_found;
-                    delete data;
-                    voxels_[x][y][z].data = reinterpret_cast<void*>(new_data);
                 }
             }
         }
+
     }
+    return true;
 }
 
-bool OccupancyGrid::updateStatesOMP()
+template<int N> bool OccupancyGrid::updateStates()
 {
     state_changed = false;
     std::vector<unsigned long long int> keys;
@@ -396,10 +248,10 @@ bool OccupancyGrid::updateStatesOMP()
         keys.push_back(key);
     std::cout<<"Total Voxels: "<<keys.size()<<std::endl;
     //TODO: Use hashing.
-    #pragma omp parallel for \ 
+#pragma omp parallel for \ 
     default(none) \
     shared(keys) \
-        num_threads(8)
+        num_threads(N)
     for (int key=0;key<keys.size();key++)
     {
         int x,y,z;

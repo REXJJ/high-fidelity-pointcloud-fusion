@@ -157,6 +157,7 @@ PointcloudFusion::PointcloudFusion(ros::NodeHandle& nh,const std::string& fusion
     cloud_subscription_started_ = false;
     grid_.setResolution(0.005,0.005,0.005);
     grid_.setDimensions(1.0,2.0,-0.5,0.5,0,0.5);
+    grid_.setK(2);
     grid_.construct();
     std::cout<<"Construction done.."<<std::endl;
     box_filter_.setMin(Eigen::Vector4f(-10, -10, 0.28, 1.0));
@@ -302,13 +303,13 @@ void PointcloudFusion::cleanGrid()
             if(start_==true)
             {
                 std::cout<<"Started Cleaning.."<<std::endl;
-                grid_.updateStates();
+                grid_.updateStates<8>();
                 std::cout<<"Finished Cleaning.."<<std::endl;
             }
             else
             {
                 std::cout<<"Started Cleaning OMP.."<<std::endl;
-                grid_.updateStatesOMP();
+                grid_.updateStates<8>();
                 std::cout<<"Finished Cleaning OMP.."<<std::endl;
             }
         }
@@ -397,9 +398,13 @@ bool PointcloudFusion::getFusedCloud(std_srvs::TriggerRequest& req, std_srvs::Tr
     cloud->width = cloud->points.size();
     cloud_normals->height = 1;
     cloud_normals->width = cloud_normals->points.size();
+#if 0
     pcl::io::savePCDFileASCII ("/home/rflin/Desktop/test_cloud.pcd",*cloud);
-    // pcl::io::savePCDFileASCII ("/home/rex/Desktop/test_cloud.pcd",*cloud);
     pcl::io::savePCDFileASCII ("/home/rflin/Desktop/test_cloud_normals.pcd",*cloud_normals);
+#else
+    pcl::io::savePCDFileASCII ("/home/rex/Desktop/test_cloud.pcd",*cloud);
+    pcl::io::savePCDFileASCII ("/home/rex/Desktop/test_cloud_normals.pcd",*cloud_normals);
+#endif
     grid_.clearVoxels();
     return true;
 }
