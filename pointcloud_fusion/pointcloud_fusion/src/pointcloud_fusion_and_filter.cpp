@@ -299,7 +299,11 @@ void PointcloudFusion::cleanGrid()
     {
         grid_mtx_.lock();
         if(grid_.state_changed)
+        {
+            std::cout<<"Started Cleaning.."<<std::endl;
             grid_.updateStates();
+            std::cout<<"Finished Cleaning.."<<std::endl;
+        }
         grid_mtx_.unlock();
         std::cout<<"Grid Cleaned.."<<std::endl;
         sleep(5);    

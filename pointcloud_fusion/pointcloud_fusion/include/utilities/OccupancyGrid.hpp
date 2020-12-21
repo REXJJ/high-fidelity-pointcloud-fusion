@@ -112,6 +112,7 @@ bool OccupancyGrid::clearVoxels()
                         VoxelInfo* data = reinterpret_cast<VoxelInfo*>(voxels_[x][y][z].data);
                         delete data;
                         voxels_[x][y][z].data = nullptr;
+                        voxels_[x][y][z].occupied = false;
                     }
                 }
                 std::cout<<"All voxels cleared..."<<std::endl;
@@ -151,6 +152,37 @@ bool OccupancyGrid::addPoints(pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud)
             voxels_[x][y][z].data = reinterpret_cast<void*>(data);
             //TODO: Allocate 1000 before hand.
         }
+        //TODO: Check state before doing this..
+        for(int i=k_;i<=k_;i++)
+            for(int j=k_;j<=k_;j++)
+                for(int k=k_;k<=k_;k++)
+                {
+                    if(validCoord(x+i,y+j,z+k))
+                    {
+                        Voxel voxel_neighbor = voxels_[x+i][y+j][z+k];
+                        if(voxel_neighbor.occupied==true)
+                        {
+                            VoxelInfo* neighbor_data = reinterpret_cast<VoxelInfo*>(voxel_neighbor.data);
+                            if(neighbor_data->normal_found==true)
+                            {
+                                std::cout<<"Here"<<std::endl;
+                                Vector3f centroid = {xmin_+xres_*(x+i)+xres_/2.0,ymin_+yres_*(y+j)+yres_/2.0,zmin_+zres_*(z+k)+zres_/2.0};
+                                Vector3f projected_points = projectPointToVector(ptv,centroid,neighbor_data->normal);
+                                double distance_to_normal = (ptv - projected_points).norm();
+                                if(distance_to_normal<kCylinderRadius)
+                                {
+                                    std::cout<<"Insided culprit.."<<std::endl;
+                                    if(neighbor_data==nullptr)
+                                        std::cout<<"Neighbor is null"<<std::endl;
+                                    std::cout<<"Count: "<<neighbor_data->count<<std::endl;
+                                    neighbor_data->count++;
+                                    // neighbor_data->centroid = neighbor_data->centroid + (projected_points-neighbor_data->centroid)/neighbor_data->count;
+                                }
+                            }
+                        }
+                    }
+                }
+
     }
     return true;
 }
