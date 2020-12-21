@@ -288,7 +288,6 @@ void PointcloudFusion::updateStates()
         grid_mtx_.lock();
         grid_.addPoints(cloud_transformed);
         grid_mtx_.unlock();
-        counter++;
         std::cout<<"Pointcloud "<<counter++<<" states updated.."<<std::endl;
     }
 }
@@ -300,9 +299,18 @@ void PointcloudFusion::cleanGrid()
         grid_mtx_.lock();
         if(grid_.state_changed)
         {
-            std::cout<<"Started Cleaning.."<<std::endl;
-            grid_.updateStates();
-            std::cout<<"Finished Cleaning.."<<std::endl;
+            if(start_==true)
+            {
+                std::cout<<"Started Cleaning.."<<std::endl;
+                grid_.updateStates();
+                std::cout<<"Finished Cleaning.."<<std::endl;
+            }
+            else
+            {
+                std::cout<<"Started Cleaning OMP.."<<std::endl;
+                grid_.updateStatesOMP();
+                std::cout<<"Finished Cleaning OMP.."<<std::endl;
+            }
         }
         grid_mtx_.unlock();
         std::cout<<"Grid Cleaned.."<<std::endl;
@@ -389,9 +397,9 @@ bool PointcloudFusion::getFusedCloud(std_srvs::TriggerRequest& req, std_srvs::Tr
     cloud->width = cloud->points.size();
     cloud_normals->height = 1;
     cloud_normals->width = cloud_normals->points.size();
-    // pcl::io::savePCDFileASCII ("/home/rflin/Desktop/test_cloud.pcd",*cloud);
-    pcl::io::savePCDFileASCII ("/home/rex/Desktop/test_cloud.pcd",*cloud);
-    pcl::io::savePCDFileASCII ("/home/rex/Desktop/test_cloud_normals.pcd",*cloud_normals);
+    pcl::io::savePCDFileASCII ("/home/rflin/Desktop/test_cloud.pcd",*cloud);
+    // pcl::io::savePCDFileASCII ("/home/rex/Desktop/test_cloud.pcd",*cloud);
+    pcl::io::savePCDFileASCII ("/home/rflin/Desktop/test_cloud_normals.pcd",*cloud_normals);
     grid_.clearVoxels();
     return true;
 }
