@@ -156,7 +156,7 @@ PointcloudFusion::PointcloudFusion(ros::NodeHandle& nh,const std::string& fusion
     start_ = false;
     cloud_subscription_started_ = false;
     grid_.setResolution(0.005,0.005,0.005);
-    grid_.setDimensions(1.0,2.0,-0.5,0.5,0,0.5);
+    grid_.setDimensions(0.80,1.80,-0.5,0.5,0,0.5);
     grid_.setK(2);
     grid_.construct();
     std::cout<<"Construction done.."<<std::endl;
@@ -185,7 +185,7 @@ pcl::PointCloud<pcl::PointXYZRGB> pointCloud2ToPclXYZRGBOMP(const pcl::PCLPointC
     #pragma omp parallel for \ 
         default(none) \
             shared(cloud,p) \
-            num_threads(8)
+            num_threads(2)
     for(int i=0;i<p.row_step;i+=p.point_step)
     {
         vector<float> t;
@@ -287,7 +287,10 @@ void PointcloudFusion::updateStates()
         pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud_transformed(new pcl::PointCloud<pcl::PointXYZRGB>);
         pcl::transformPointCloud (*cloud, *cloud_transformed, fusion_frame_T_camera);
         grid_mtx_.lock();
-        grid_.addPoints(cloud_transformed);
+        if(start_)
+            grid_.addPoints<6>(cloud_transformed);
+        else
+            grid_.addPoints<8>(cloud_transformed);
         grid_mtx_.unlock();
         std::cout<<"Pointcloud "<<counter++<<" states updated.."<<std::endl;
     }
@@ -303,7 +306,7 @@ void PointcloudFusion::cleanGrid()
             if(start_==true)
             {
                 std::cout<<"Started Cleaning.."<<std::endl;
-                grid_.updateStates<8>();
+                grid_.updateStates<6>();
                 std::cout<<"Finished Cleaning.."<<std::endl;
             }
             else
@@ -398,7 +401,7 @@ bool PointcloudFusion::getFusedCloud(std_srvs::TriggerRequest& req, std_srvs::Tr
     cloud->width = cloud->points.size();
     cloud_normals->height = 1;
     cloud_normals->width = cloud_normals->points.size();
-#if 0
+#if 1
     pcl::io::savePCDFileASCII ("/home/rflin/Desktop/test_cloud.pcd",*cloud);
     pcl::io::savePCDFileASCII ("/home/rflin/Desktop/test_cloud_normals.pcd",*cloud_normals);
 #else

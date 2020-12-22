@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 2.8.3)
 project(pointcloud_fusion)
 
 ## Compile as C++11, supported in ROS Kinetic and newer
-add_compile_options(-std=c++17 -O3 -fopenmp -pthread)
+add_compile_options(-std=c++17 -O3 -fopenmp -pthread -funroll-loops)
 
 ## Find catkin macros and libraries
 ## if COMPONENTS list like find_package(catkin REQUIRED COMPONENTS xyz)
