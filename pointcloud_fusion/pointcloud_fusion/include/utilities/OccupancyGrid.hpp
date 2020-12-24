@@ -110,8 +110,7 @@ class OccupancyGrid
         bool validPoints(Vector3f point);
         bool validCoord(int x,int y,int z);
         template<int N> bool addPoints(pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud);
-        template<int N> bool updateThicknessVectors();
-        template<int N> bool updateCentroids();
+        template<int N,int K> bool updateThicknessVectors();
         bool clearVoxels();
         bool download(pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud);
         bool download(pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr cloud);
@@ -274,7 +273,7 @@ solvePlaneParameters (const Eigen::Matrix3f &covariance_matrix,
     nz = eigen_vector [2];
 }
 
-template<int N> bool OccupancyGrid::updateThicknessVectors()
+template<int N,int K> bool OccupancyGrid::updateThicknessVectors()
 {
     state_changed = false;
     std::vector<unsigned long long int> keys;
@@ -302,10 +301,10 @@ template<int N> bool OccupancyGrid::updateThicknessVectors()
                 int i = dx[d],j=dy[d],k=dz[d];
                 if(validCoord(x+i,y+j,z+k))
                 {
-                    available_directions.push_back(d);
                     Voxel voxel_neighbor = voxels_[x+i][y+j][z+k];
                     if(voxel_neighbor.occupied==true)
                     {
+                        available_directions.push_back(d);
                         VoxelInfo* neighbor_data = reinterpret_cast<VoxelInfo*>(voxel_neighbor.data);
                         total+=neighbor_data->buffer.size();
                         if(neighbor_data->normal_found==false)
@@ -323,33 +322,31 @@ template<int N> bool OccupancyGrid::updateThicknessVectors()
                 Eigen::MatrixXd lhs (total_used, 3);
                 Eigen::VectorXd rhs (total_used);
                 int counter = 0;
-                for(int i=-k_;i<=k_;i++)
-                    for(int j=-k_;j<=k_;j++)
-                        for(int k=-k_;k<=k_;k++)
+                for(auto d:available_directions)
+                {
+                    int i = dx[d],j=dy[d],k=dz[d];
+                    if(validCoord(x+i,y+j,z+k))
+                    {
+                        Voxel voxel_neighbor = voxels_[x+i][y+j][z+k];
+                        if(voxel_neighbor.occupied==false)
+                            continue;
+                        VoxelInfo* data = reinterpret_cast<VoxelInfo*>(voxel_neighbor.data);
+                        for(auto x:data->buffer)
                         {
-                            if(validCoord(x+i,y+j,z+k))
+                            if(counter%iter==0)
                             {
-                                // std::cout<<x+i<<" "<<y+j<<" "<<z+k<<std::endl;
-                                Voxel voxel_neighbor = voxels_[x+i][y+j][z+k];
-                                if(voxel_neighbor.occupied==false)
-                                    continue;
-                                VoxelInfo* data = reinterpret_cast<VoxelInfo*>(voxel_neighbor.data);
-                                for(auto x:data->buffer)
-                                {
-                                    if(counter%iter==0)
-                                    {
-                                        int index_used = counter/iter;
-                                        if(index_used==total_used)
-                                            break;
-                                        lhs(index_used,0) = x(0);
-                                        lhs(index_used,1) = x(1);
-                                        lhs(index_used,2) = 1.0;
-                                        rhs(index_used) = -1.0*x(2);
-                                    }
-                                    counter++;
-                                }
+                                int index_used = counter/iter;
+                                if(index_used==total_used)
+                                    break;
+                                lhs(index_used,0) = x(0);
+                                lhs(index_used,1) = x(1);
+                                lhs(index_used,2) = 1.0;
+                                rhs(index_used) = -1.0*x(2);
                             }
+                            counter++;
                         }
+                    }
+                }
 
                 // std::cout<<"Total: "<<total<<" "<<counter<<std::endl;
                 // Eigen::Vector3d params = lhs.bdcSvd(Eigen::ComputeThinU | Eigen::ComputeThinV).solve(rhs);//Jacobi SVD
@@ -365,7 +362,7 @@ template<int N> bool OccupancyGrid::updateThicknessVectors()
                 processed_data_.insert(hash);
                 Vector3f centroid = {xmin_+xres_*(x)+xres_/2.0,ymin_+yres_*(y)+yres_/2.0,zmin_+zres_*(z)+zres_/2.0};//TODO: Have only one directional resolution.
                 // data->neighbors_done = neighbors_done;
-                for(int i=-3;i<=3;i++)//TODO: Use templates.
+                for(int i=-K;i<=K;i++)//TODO: Use templates.
                 {
                     Vector3f neighbor = centroid + i*xres_*data->normal;
                     if(validPoints(neighbor)==false)
@@ -394,56 +391,6 @@ template<int N> bool OccupancyGrid::updateThicknessVectors()
             }
         }
     }
-}
-
-
-template<int N> bool OccupancyGrid::updateCentroids()
-{
-//     state_changed = false;
-//     std::vector<unsigned long long int> keys;
-//     for(auto key:processed_data_)
-//         keys.push_back(key);
-//     std::cout<<"Total Voxels Processed: "<<keys.size()<<std::endl;
-// #pragma omp parallel for \ 
-//     default(none) \
-//     shared(keys) \
-//     num_threads(N)
-//     for (int key=0;key<keys.size();key++)
-//     {
-//         int x,y,z;
-//         tie(x,y,z) = getVoxelCoords(keys[key]);
-//         Voxel& voxel = voxels_[x][y][z];
-//         VoxelInfo* data = reinterpret_cast<VoxelInfo*>(voxel.data);
-//         if(data->processing==true&&data->buffer_private.size()>0)
-//         {
-//             Vector3f centroid = {xmin_+xres_*(x)+xres_/2.0,ymin_+yres_*(y)+yres_/2.0,zmin_+zres_*(z)+zres_/2.0};//TODO: Have only one directional resolution.
-//             for(int i=-3;i<=3;i++)//TODO: Use templates.
-//             {
-//                 Vector3f neighbor = centroid + i*xres_*data->normal;
-//                 if(validPoints(neighbor)==false)
-//                     continue;
-//                 int xx,yy,zz;
-//                 tie(xx,yy,zz) = getVoxelCoords(neighbor);
-//                 auto neighbor_voxel = voxels_[xx][yy][zz];
-//                 if(neighbor_voxel.occupied==true)
-//                 {
-//                     VoxelInfo* neighbor_data = reinterpret_cast<VoxelInfo*>(neighbor_voxel.data);
-//                     for(auto pt:neighbor_data->buffer)
-//                     {
-//                         Vector3f projected_points = projectPointToVector(pt,centroid,data->normal);
-//                         double distance_to_normal = (pt - projected_points).norm();
-//                         if(distance_to_normal<kCylinderRadius)
-//                         {
-//                             data->count++;
-//                             data->centroid = data->centroid + (projected_points-data->centroid)/data->count;
-//                         }
-//                     }
-//
-//                 }
-//             }
-//             data->processing = false;
-//         }
-//     }
 }
 
 bool OccupancyGrid::download(pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud)
