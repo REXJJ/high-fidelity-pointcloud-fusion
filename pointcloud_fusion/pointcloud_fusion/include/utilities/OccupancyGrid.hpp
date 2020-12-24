@@ -327,9 +327,10 @@ template<int N> bool OccupancyGrid::updateStates()
             {
                 // std::cout<<"Reaching Here.."<<std::endl;
                 // std::cout<<"Total: "<<total<<std::endl;
-                Eigen::MatrixXd lhs (total, 3);
-                Eigen::VectorXd rhs (total);
-                //TODO: Replace this hideos loop with something better: templates with par for might be a good option.
+                constexpr int total_used = 1000;
+                int iter = total/total_used;
+                Eigen::MatrixXd lhs (total_used, 3);
+                Eigen::VectorXd rhs (total_used);
                 int counter = 0;
                 for(int i=-k_;i<=k_;i++)
                     for(int j=-k_;j<=k_;j++)
@@ -344,17 +345,25 @@ template<int N> bool OccupancyGrid::updateStates()
                                 VoxelInfo* data = reinterpret_cast<VoxelInfo*>(voxel_neighbor.data);
                                 for(auto x:data->buffer)
                                 {
-                                    lhs(counter,0) = x(0);
-                                    lhs(counter,1) = x(1);
-                                    lhs(counter,2) = 1.0;
-                                    rhs(counter++) = -1.0*x(2);
+                                    if(counter%iter==0)
+                                    {
+                                        int index_used = counter/iter;
+                                        if(index_used==total_used)
+                                            break;
+                                        lhs(index_used,0) = x(0);
+                                        lhs(index_used,1) = x(1);
+                                        lhs(index_used,2) = 1.0;
+                                        rhs(index_used) = -1.0*x(2);
+                                    }
+                                    counter++;
                                 }
                             }
                         }
 
                 // std::cout<<"Total: "<<total<<" "<<counter<<std::endl;
-
-                Eigen::Vector3d params = lhs.jacobiSvd(Eigen::ComputeThinU | Eigen::ComputeThinV).solve(rhs);//Jacobi SVD
+                // Eigen::Vector3d params = lhs.bdcSvd(Eigen::ComputeThinU | Eigen::ComputeThinV).solve(rhs);//Jacobi SVD
+                // Eigen::Vector3d params = (lhs.transpose() * lhs).ldlt().solve(lhs.transpose() * rhs);
+                Eigen::Vector3d params = lhs.colPivHouseholderQr().solve(rhs);
                 Eigen::Vector3f normal (params(0), params(1), 1.0);
                 auto length = normal.norm();
                 normal /= length;
