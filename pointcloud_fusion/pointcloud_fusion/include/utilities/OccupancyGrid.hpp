@@ -428,9 +428,15 @@ bool OccupancyGrid::downloadHQ(pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud)
                     VoxelInfo* data = reinterpret_cast<VoxelInfo*>(voxels_[x][y][z].data);
                     if(data->normal_found==false)
                         continue;
-                    if(data->count<kGoodPointsThreshold)
-                        continue;
                     pcl::PointXYZRGB pt;
+                    pt.g = 255;
+                    pt.r = 255;
+                    pt.b = 255;
+                    if(data->count>kGoodPointsThreshold)
+                    {
+                        pt.g = 0;
+                        pt.b = 0;
+                    }
                     auto point = data->centroid;
                     // auto point = getVoxelCenter(x,y,z);
                     pt.x = point(0);

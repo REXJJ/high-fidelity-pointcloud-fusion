@@ -401,7 +401,7 @@ bool PointcloudFusion::getFusedCloud(std_srvs::TriggerRequest& req, std_srvs::Tr
     cloud->width = cloud->points.size();
     cloud_normals->height = 1;
     cloud_normals->width = cloud_normals->points.size();
-#if 0
+#if 1
     pcl::io::savePCDFileASCII ("/home/rflin/Desktop/test_cloud.pcd",*cloud);
     pcl::io::savePCDFileASCII ("/home/rflin/Desktop/test_cloud_normals.pcd",*cloud_normals);
 #else
