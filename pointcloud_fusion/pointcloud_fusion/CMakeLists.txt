@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 2.8.3)
 project(pointcloud_fusion)
 
 ## Compile as C++11, supported in ROS Kinetic and newer
-add_compile_options(-std=c++17 -O3 -fopenmp -pthread)
+add_compile_options(-std=c++17 -O3 -fopenmp -pthread -funroll-loops)
 
 ## Find catkin macros and libraries
 ## if COMPONENTS list like find_package(catkin REQUIRED COMPONENTS xyz)
@@ -252,6 +252,5 @@ target_link_libraries(${firstfile} ${catkin_LIBRARIES})
 target_link_libraries(${firstfile} ${PCL_LIBRARIES} ${OpenCV_LIBS} -lrt)
 endfunction()
 
-create_exe(pointcloud_fusion)
-create_exe(pointcloud_fusion_normals)
 create_exe(pointcloud_fusion_and_filter)
+create_exe(capture_pointcloud_data)
