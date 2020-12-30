@@ -262,15 +262,31 @@ template<int N> bool OccupancyGrid::addPoints(pcl::PointCloud<pcl::PointXYZRGB>:
 
 inline void
 solvePlaneParameters (const Eigen::Matrix3f &covariance_matrix,
-                    float &nx, float &ny, float &nz, float &curvature)
+                    Eigen::Vector3f &normal)
 {
 
     EIGEN_ALIGN16 Eigen::Vector3f::Scalar eigen_value;
     EIGEN_ALIGN16 Eigen::Vector3f eigen_vector;
     pcl::eigen33 (covariance_matrix, eigen_value, eigen_vector);
-    nx = eigen_vector [0];
-    ny = eigen_vector [1];
-    nz = eigen_vector [2];
+    normal(0) = eigen_vector [0];
+    normal(1) = eigen_vector [1];
+    normal(2) = eigen_vector [2];
+}
+
+inline void getNormal(const pcl::PointCloud<pcl::PointXYZ> &cloud, Eigen::Vector3f &normal)
+{
+    EIGEN_ALIGN16 Eigen::Matrix3f covariance_matrix;
+    // 16-bytes aligned placeholder for the XYZ centroid of a surface patch
+    Eigen::Vector4f xyz_centroid;
+
+    if (cloud.size () < 3 ||
+            computeMeanAndCovarianceMatrix (cloud, covariance_matrix, xyz_centroid) == 0)
+    {
+        return;
+    }
+
+    // Get the plane normal and surface curvature
+    solvePlaneParameters (covariance_matrix,normal);
 }
 
 template<int N,int K> bool OccupancyGrid::updateThicknessVectors()
@@ -306,55 +322,63 @@ template<int N,int K> bool OccupancyGrid::updateThicknessVectors()
                     {
                         available_directions.push_back(d);
                         VoxelInfo* neighbor_data = reinterpret_cast<VoxelInfo*>(voxel_neighbor.data);
-                        total+=neighbor_data->buffer.size();
+                        total+=1;
                         if(neighbor_data->normal_found==false)
                             neighbors_done = false;
                     }
                 }
             }
+
             // std::cout<<"Total: "<<total<<std::endl;
-            if(total>1000&&data->normal_found==false)
+            if(total>3&&data->normal_found==false)
             {
                 // std::cout<<"Reaching Here.."<<std::endl;
                 // std::cout<<"Total: "<<total<<std::endl;
-                constexpr int total_used = 1000;
-                int iter = total/total_used;
-                Eigen::MatrixXd lhs (total_used, 3);
-                Eigen::VectorXd rhs (total_used);
+                pcl::PointCloud<pcl::PointXYZ> cloud_buffer;
+                cloud_buffer.points.resize(total);
                 int counter = 0;
                 for(auto d:available_directions)
                 {
                     int i = dx[d],j=dy[d],k=dz[d];
                     if(validCoord(x+i,y+j,z+k))
                     {
-                        Voxel voxel_neighbor = voxels_[x+i][y+j][z+k];
-                        if(voxel_neighbor.occupied==false)
-                            continue;
-                        VoxelInfo* data = reinterpret_cast<VoxelInfo*>(voxel_neighbor.data);
-                        for(auto x:data->buffer)
-                        {
-                            if(counter%iter==0)
-                            {
-                                int index_used = counter/iter;
-                                if(index_used==total_used)
-                                    break;
-                                lhs(index_used,0) = x(0);
-                                lhs(index_used,1) = x(1);
-                                lhs(index_used,2) = 1.0;
-                                rhs(index_used) = -1.0*x(2);
-                            }
-                            counter++;
-                        }
+                        auto temp_centroid = getVoxelCenter(x+i,y+j,z+k);
+                        pcl::PointXYZ pt;
+                        pt.x = temp_centroid(0);
+                        pt.y = temp_centroid(1);
+                        pt.z = temp_centroid(2);
+                        cloud_buffer.points[counter++] = pt;
+                        // Voxel voxel_neighbor = voxels_[x+i][y+j][z+k];
+                        // if(voxel_neighbor.occupied==false)
+                            // continue;
+                        // VoxelInfo* data = reinterpret_cast<VoxelInfo*>(voxel_neighbor.data);
+                        // for(auto x:data->buffer)
+                        // {
+                        //     if(counter%iter==0)
+                        //     {
+                        //         int index_used = counter/iter;
+                        //         if(index_used==total_used)
+                        //             break;
+                        //         lhs(index_used,0) = x(0);
+                        //         lhs(index_used,1) = x(1);
+                        //         lhs(index_used,2) = 1.0;
+                        //         rhs(index_used) = -1.0*x(2);
+                        //     }
+                        //     counter++;
+                        // }
                     }
                 }
-
                 // std::cout<<"Total: "<<total<<" "<<counter<<std::endl;
                 // Eigen::Vector3d params = lhs.bdcSvd(Eigen::ComputeThinU | Eigen::ComputeThinV).solve(rhs);//Jacobi SVD
                 // Eigen::Vector3d params = (lhs.transpose() * lhs).ldlt().solve(lhs.transpose() * rhs);
-                Eigen::Vector3d params = lhs.colPivHouseholderQr().solve(rhs);
-                Eigen::Vector3f normal (params(0), params(1), 1.0);
-                auto length = normal.norm();
-                normal /= length;
+                // Eigen::Vector3d params = lhs.colPivHouseholderQr().solve(rhs);
+                // Eigen::Vector3f normal (params(0), params(1), 1.0);
+                // auto length = normal.norm();
+                // normal /= length;
+                Eigen::Vector3f normal;
+
+                getNormal(cloud_buffer,normal);
+            
                 data->normal = normal;
                 data->normal_found = true;
                 // data->processing = true;

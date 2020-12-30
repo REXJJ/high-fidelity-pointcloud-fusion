@@ -138,6 +138,7 @@ class PointcloudFusion
         std::mutex proc_mtx_;  
         std::mutex grid_mtx_;  
         std::condition_variable cv_;
+        pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud_merged_;
 };
 
 PointcloudFusion::PointcloudFusion(ros::NodeHandle& nh,const std::string& fusion_frame,vector<double>& box,string directory_name)
@@ -162,6 +163,7 @@ PointcloudFusion::PointcloudFusion(ros::NodeHandle& nh,const std::string& fusion
     std::cout<<"Construction done.."<<std::endl;
     box_filter_.setMin(Eigen::Vector4f(-10, -10, 0.28, 1.0));
     box_filter_.setMax(Eigen::Vector4f(10, 10, 0.81, 1.0));
+    cloud_merged_.reset(new pcl::PointCloud<pcl::PointXYZRGB>);
     threads_.push_back(std::thread(&PointcloudFusion::addPoints, this));
     threads_.push_back(std::thread(&PointcloudFusion::updateStates, this));
     threads_.push_back(std::thread(&PointcloudFusion::cleanGrid,this));
@@ -286,12 +288,16 @@ void PointcloudFusion::updateStates()
         auto cloud = get<1>(cloud_data);
         pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud_transformed(new pcl::PointCloud<pcl::PointXYZRGB>);
         pcl::transformPointCloud (*cloud, *cloud_transformed, fusion_frame_T_camera);
-        grid_mtx_.lock();
-        if(start_)
-            grid_.addPoints<6>(cloud_transformed);
-        else
-            grid_.addPoints<8>(cloud_transformed);
-        grid_mtx_.unlock();
+        for(auto pt:cloud_transformed->points)
+        {
+            cloud_merged_->points.push_back(pt);
+        }
+        // grid_mtx_.lock();
+        // if(start_)
+        //     grid_.addPoints<6>(cloud_transformed);
+        // else
+        //     grid_.addPoints<8>(cloud_transformed);
+        // grid_mtx_.unlock();
         std::cout<<"Pointcloud "<<counter++<<" states updated.."<<std::endl;
     }
 }
@@ -374,39 +380,41 @@ bool PointcloudFusion::stop(std_srvs::TriggerRequest& req, std_srvs::TriggerResp
 
 bool PointcloudFusion::getFusedCloud(std_srvs::TriggerRequest& req, std_srvs::TriggerResponse& res)
 {
-    bool merging_finished = false;
-    while(ros::ok()&&merging_finished==false)//TODO: Busy waiting use conditional wait.
-    {
-        mtx_.lock();
-        if(clouds_.size()==0)
-            merging_finished = true;
-        mtx_.unlock();
-        if(merging_finished==true)
-        {
-            proc_mtx_.lock();
-            if(clouds_processed_.size()!=0)
-                merging_finished=false;
-            proc_mtx_.unlock();
-        }
-        sleep(1);
-    }
+    // bool merging_finished = false;
+    // while(ros::ok()&&merging_finished==false)//TODO: Busy waiting use conditional wait.
+    // {
+    //     mtx_.lock();
+    //     if(clouds_.size()==0)
+    //         merging_finished = true;
+    //     mtx_.unlock();
+    //     if(merging_finished==true)
+    //     {
+    //         proc_mtx_.lock();
+    //         if(clouds_processed_.size()!=0)
+    //             merging_finished=false;
+    //         proc_mtx_.unlock();
+    //     }
+    //     sleep(1);
+    // }
     std::cout<<"Downloading cloud."<<std::endl;
-    pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud(new pcl::PointCloud<pcl::PointXYZRGB>);
-    pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr cloud_normals(new pcl::PointCloud<pcl::PointXYZRGBNormal>);
-    grid_mtx_.lock();
-    grid_.downloadHQ(cloud);
-    grid_.download(cloud_normals);
-    grid_mtx_.unlock();
-    cloud->height = 1;
-    cloud->width = cloud->points.size();
-    cloud_normals->height = 1;
-    cloud_normals->width = cloud_normals->points.size();
-#if 1
+    // pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud(new pcl::PointCloud<pcl::PointXYZRGB>);
+    auto cloud_merged_downsampled = PCLUtilities::downsample<pcl::PointXYZRGB>(cloud_merged_, 0.005);
+    // pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr cloud_normals(new pcl::PointCloud<pcl::PointXYZRGBNormal>);
+    // grid_mtx_.lock();
+    // grid_.downloadHQ(cloud);
+    // grid_.download(cloud_normals);
+    // grid_mtx_.unlock();
+    // cloud->height = 1;
+    // cloud->width = cloud->points.size();
+    // cloud_normals->height = 1;
+    // cloud_normals->width = cloud_normals->points.size();
+#if 0
     pcl::io::savePCDFileASCII ("/home/rflin/Desktop/test_cloud.pcd",*cloud);
     pcl::io::savePCDFileASCII ("/home/rflin/Desktop/test_cloud_normals.pcd",*cloud_normals);
 #else
-    pcl::io::savePCDFileASCII ("/home/rex/Desktop/test_cloud.pcd",*cloud);
-    pcl::io::savePCDFileASCII ("/home/rex/Desktop/test_cloud_normals.pcd",*cloud_normals);
+    // pcl::io::savePCDFileASCII ("/home/rex/Desktop/test_cloud.pcd",*cloud);
+    // pcl::io::savePCDFileASCII ("/home/rex/Desktop/test_cloud_normals.pcd",*cloud_normals);
+    pcl::io::savePCDFileASCII ("/home/rex/Desktop/test_cloud_downsampled.pcd",cloud_merged_downsampled);
 #endif
     grid_.clearVoxels();
     return true;
