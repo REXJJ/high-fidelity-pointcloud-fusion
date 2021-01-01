@@ -115,6 +115,7 @@ class OccupancyGrid
         bool download(pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud);
         bool download(pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr cloud);
         bool downloadHQ(pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud);
+        bool downloadHQClassified(pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud);
         bool setK(int k);
         unordered_set<unsigned long long int> unprocessed_data_;
         unordered_set<unsigned long long int> processed_data_;
@@ -416,7 +417,7 @@ bool OccupancyGrid::download(pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud)
     std::cout<<"Points: "<<cloud->points.size()<<std::endl;
 }
 
-bool OccupancyGrid::downloadHQ(pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud)
+bool OccupancyGrid::downloadHQClassified(pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud)
 {
     if(cloud==nullptr)
         return false;
@@ -437,6 +438,31 @@ bool OccupancyGrid::downloadHQ(pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud)
                         pt.g = 0;
                         pt.b = 0;
                     }
+                    auto point = data->centroid;
+                    // auto point = getVoxelCenter(x,y,z);
+                    pt.x = point(0);
+                    pt.y = point(1);
+                    pt.z = point(2);
+                    cloud->points.push_back(pt);
+                }
+    std::cout<<"Points: "<<cloud->points.size()<<std::endl;
+}
+
+bool OccupancyGrid::downloadHQ(pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud)
+{
+    if(cloud==nullptr)
+        return false;
+    for(int x=0;x<xdim_;x++)
+        for(int y=0;y<ydim_;y++)
+            for(int z=0;z<zdim_;z++)
+                if(voxels_[x][y][z].occupied)
+                {
+                    VoxelInfo* data = reinterpret_cast<VoxelInfo*>(voxels_[x][y][z].data);
+                    if(data->normal_found==false)
+                        continue;
+                    pcl::PointXYZRGB pt;
+                    if(data->count<kGoodPointsThreshold)
+                        continue;
                     auto point = data->centroid;
                     // auto point = getVoxelCenter(x,y,z);
                     pt.x = point(0);

@@ -392,16 +392,21 @@ bool PointcloudFusion::getFusedCloud(std_srvs::TriggerRequest& req, std_srvs::Tr
     }
     std::cout<<"Downloading cloud."<<std::endl;
     pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud(new pcl::PointCloud<pcl::PointXYZRGB>);
+    pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud_classified(new pcl::PointCloud<pcl::PointXYZRGB>);
     pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr cloud_normals(new pcl::PointCloud<pcl::PointXYZRGBNormal>);
     grid_mtx_.lock();
     grid_.downloadHQ(cloud);
+    grid_.downloadHQClassified(cloud_classified);
     grid_.download(cloud_normals);
     grid_mtx_.unlock();
     cloud->height = 1;
     cloud->width = cloud->points.size();
+    cloud_classified->height = 1;
+    cloud_classified->width = cloud_classified->points.size();
     cloud_normals->height = 1;
     cloud_normals->width = cloud_normals->points.size();
 #if 1
+    pcl::io::savePCDFileASCII ("/home/rflin/Desktop/test_cloud_classified.pcd",*cloud_classified);
     pcl::io::savePCDFileASCII ("/home/rflin/Desktop/test_cloud.pcd",*cloud);
     pcl::io::savePCDFileASCII ("/home/rflin/Desktop/test_cloud_normals.pcd",*cloud_normals);
 #else
