@@ -393,6 +393,8 @@ template<int N,int K> bool OccupancyGrid::updateThicknessVectors()
                         continue;
                     int xx,yy,zz;
                     tie(xx,yy,zz) = getVoxelCoords(neighbor);
+                    if(validCoord(x,y,z)==false)
+                        continue;
                     auto neighbor_voxel = voxels_[xx][yy][zz];
                     if(neighbor_voxel.occupied==true)
                     {
