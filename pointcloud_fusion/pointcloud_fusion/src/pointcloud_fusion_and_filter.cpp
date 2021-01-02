@@ -286,11 +286,12 @@ void PointcloudFusion::updateStates()
         auto cloud = get<1>(cloud_data);
         pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud_transformed(new pcl::PointCloud<pcl::PointXYZRGB>);
         pcl::transformPointCloud (*cloud, *cloud_transformed, fusion_frame_T_camera);
+        Vector3f vp = {fusion_frame_T_camera(0,3),fusion_frame_T_camera(1,3),fusion_frame_T_camera(2,3)};
         grid_mtx_.lock();
         if(start_)
-            grid_.addPoints<6>(cloud_transformed);
+            grid_.addPoints<6>(cloud_transformed,vp);
         else
-            grid_.addPoints<8>(cloud_transformed);
+            grid_.addPoints<8>(cloud_transformed,vp);
         grid_mtx_.unlock();
         std::cout<<"Pointcloud "<<counter++<<" states updated.."<<std::endl;
     }
@@ -392,17 +393,45 @@ bool PointcloudFusion::getFusedCloud(std_srvs::TriggerRequest& req, std_srvs::Tr
     }
     std::cout<<"Downloading cloud."<<std::endl;
     pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud(new pcl::PointCloud<pcl::PointXYZRGB>);
+    pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud_classified(new pcl::PointCloud<pcl::PointXYZRGB>);
     pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr cloud_normals(new pcl::PointCloud<pcl::PointXYZRGBNormal>);
+
+    pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud_50(new pcl::PointCloud<pcl::PointXYZRGB>);
+    pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud_100(new pcl::PointCloud<pcl::PointXYZRGB>);
+    pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud_150(new pcl::PointCloud<pcl::PointXYZRGB>);
+    pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud_200(new pcl::PointCloud<pcl::PointXYZRGB>);
+    pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud_250(new pcl::PointCloud<pcl::PointXYZRGB>);
+    pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud_300(new pcl::PointCloud<pcl::PointXYZRGB>);
     grid_mtx_.lock();
     grid_.downloadHQ(cloud);
+    grid_.downloadHQ(cloud_50,50);
+    grid_.downloadHQ(cloud_100,100);
+    grid_.downloadHQ(cloud_150,150);
+    grid_.downloadHQ(cloud_200,200);
+    grid_.downloadHQ(cloud_250,250);
+    grid_.downloadHQ(cloud_300,300);
     grid_.download(cloud_normals);
+    grid_.downloadClassified(cloud_classified);
     grid_mtx_.unlock();
     cloud->height = 1;
     cloud->width = cloud->points.size();
+    cloud_classified->height = 1;
+    cloud_classified->width = cloud_classified->points.size();
     cloud_normals->height = 1;
     cloud_normals->width = cloud_normals->points.size();
-#if 0
+
+
+#if 1
     pcl::io::savePCDFileASCII ("/home/rflin/Desktop/test_cloud.pcd",*cloud);
+    pcl::io::savePCDFileASCII ("/home/rflin/Desktop/test_cloud_50.pcd",*cloud_50);
+    pcl::io::savePCDFileASCII ("/home/rflin/Desktop/test_cloud_100.pcd",*cloud_100);
+    pcl::io::savePCDFileASCII ("/home/rflin/Desktop/test_cloud_150.pcd",*cloud_150);
+    pcl::io::savePCDFileASCII ("/home/rflin/Desktop/test_cloud_200.pcd",*cloud_200);
+    pcl::io::savePCDFileASCII ("/home/rflin/Desktop/test_cloud_250.pcd",*cloud_250);
+    pcl::io::savePCDFileASCII ("/home/rflin/Desktop/test_cloud_300.pcd",*cloud_300);
+
+
+    pcl::io::savePCDFileASCII ("/home/rflin/Desktop/test_cloud_classified.pcd",*cloud_classified);
     pcl::io::savePCDFileASCII ("/home/rflin/Desktop/test_cloud_normals.pcd",*cloud_normals);
 #else
     pcl::io::savePCDFileASCII ("/home/rex/Desktop/test_cloud.pcd",*cloud);

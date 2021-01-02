@@ -31,7 +31,7 @@ using namespace std;
 using namespace pcl;
 using namespace Eigen;
 
-constexpr int kGoodPointsThreshold = 250;
+constexpr int kGoodPointsThreshold = 100;
 constexpr double kBballRadius = 0.015;
 constexpr double kCylinderRadius = 0.001;
 
@@ -61,6 +61,7 @@ struct VoxelInfo
 {
     Vector3f centroid;
     Vector3f normal;
+    Vector3f viewpoint;
     vector<Vector3f> buffer;
     vector<unsigned long long int> dependants;
     bool normal_found;
@@ -109,12 +110,13 @@ class OccupancyGrid
         unsigned long long int getHashId(int x,int y,int z);
         bool validPoints(Vector3f point);
         bool validCoord(int x,int y,int z);
-        template<int N> bool addPoints(pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud);
+        template<int N> bool addPoints(pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud,Vector3f viewpoint = {0,0,0});
         template<int N,int K> bool updateThicknessVectors();
         bool clearVoxels();
         bool download(pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud);
         bool download(pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr cloud);
-        bool downloadHQ(pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud);
+        bool downloadHQ(pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud, double threshold = kGoodPointsThreshold);
+        bool downloadClassified(pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud);
         bool setK(int k);
         unordered_set<unsigned long long int> unprocessed_data_;
         unordered_set<unsigned long long int> processed_data_;
@@ -172,7 +174,7 @@ bool OccupancyGrid::clearVoxels()
                 std::cout<<"All voxels cleared..."<<std::endl;
 }
 
-template<int N> bool OccupancyGrid::addPoints(pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud)
+template<int N> bool OccupancyGrid::addPoints(pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud,Vector3f viewpoint)
 {
     if(cloud==nullptr)
         return false;
@@ -233,6 +235,7 @@ template<int N> bool OccupancyGrid::addPoints(pcl::PointCloud<pcl::PointXYZRGB>:
                 unprocessed_data_.insert(hash);
                 VoxelInfo* data = new VoxelInfo();
                 // data->buffer.reserve(1000);
+                data->viewpoint = viewpoint;
                 data->buffer.push_back(ptv);
                 unprocessed_data_.insert(hash);
                 voxels_[x][y][z].data = reinterpret_cast<void*>(data);
@@ -296,10 +299,10 @@ template<int N,int K> bool OccupancyGrid::updateThicknessVectors()
     for(auto key:unprocessed_data_)
         keys.push_back(key);
     std::cout<<"Total Voxels: "<<keys.size()<<std::endl;
-#pragma omp parallel for \ 
-    default(none) \
-    shared(keys) \
-        num_threads(N)
+// #pragma omp parallel for \ 
+//     default(none) \
+//     shared(keys) \
+//         num_threads(N)
     for (int key=0;key<keys.size();key++)
     {
         int x,y,z;
@@ -330,7 +333,7 @@ template<int N,int K> bool OccupancyGrid::updateThicknessVectors()
             }
 
             // std::cout<<"Total: "<<total<<std::endl;
-            if(total>3&&data->normal_found==false)
+            if(total>20&&data->normal_found==false)
             {
                 // std::cout<<"Reaching Here.."<<std::endl;
                 // std::cout<<"Total: "<<total<<std::endl;
@@ -376,15 +379,25 @@ template<int N,int K> bool OccupancyGrid::updateThicknessVectors()
                 // auto length = normal.norm();
                 // normal /= length;
                 Eigen::Vector3f normal;
-
+                Vector3f centroid = {xmin_+xres_*(x)+xres_/2.0,ymin_+yres_*(y)+yres_/2.0,zmin_+zres_*(z)+zres_/2.0};//TODO: Have only one directional resolution.
                 getNormal(cloud_buffer,normal);
+                auto vp = data->viewpoint;
+
+                auto dir = (vp - centroid).normalized();
+
+                // if(acos(normal.dot(dir))>3.141592/2.0)
+                //     normal = normal*-1;
+
+                auto neg_normal = -1*normal;
+                if(acos(neg_normal.dot(dir)<acos(normal.dot(dir))))
+                    data->normal = neg_normal;
+                else
+                    data->normal = normal;
             
-                data->normal = normal;
                 data->normal_found = true;
                 // data->processing = true;
                 unsigned long long int hash = getHashId(x,y,z);
                 processed_data_.insert(hash);
-                Vector3f centroid = {xmin_+xres_*(x)+xres_/2.0,ymin_+yres_*(y)+yres_/2.0,zmin_+zres_*(z)+zres_/2.0};//TODO: Have only one directional resolution.
                 // data->neighbors_done = neighbors_done;
                 for(int i=-K;i<=K;i++)//TODO: Use templates.
                 {
@@ -442,7 +455,7 @@ bool OccupancyGrid::download(pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud)
     std::cout<<"Points: "<<cloud->points.size()<<std::endl;
 }
 
-bool OccupancyGrid::downloadHQ(pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud)
+bool OccupancyGrid::downloadClassified(pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud)
 {
     if(cloud==nullptr)
         return false;
@@ -473,6 +486,38 @@ bool OccupancyGrid::downloadHQ(pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud)
     std::cout<<"Points: "<<cloud->points.size()<<std::endl;
 }
 
+bool OccupancyGrid::downloadHQ(pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud,double threshold )
+{
+    if(cloud==nullptr)
+        return false;
+    for(int x=0;x<xdim_;x++)
+        for(int y=0;y<ydim_;y++)
+            for(int z=0;z<zdim_;z++)
+                if(voxels_[x][y][z].occupied)
+                {
+                    VoxelInfo* data = reinterpret_cast<VoxelInfo*>(voxels_[x][y][z].data);
+                    if(data->normal_found==false)
+                        continue;
+                    pcl::PointXYZRGB pt;
+                    pt.g = 255;
+                    pt.r = 255;
+                    pt.b = 255;
+                    if(data->count<threshold)
+                    {
+                        continue;
+                    }
+                    auto point = data->centroid;
+                    // auto point = getVoxelCenter(x,y,z);
+                    pt.x = point(0);
+                    pt.y = point(1);
+                    pt.z = point(2);
+                    cloud->points.push_back(pt);
+                }
+    cloud->height = 1;
+    cloud->width = cloud->points.size();
+    std::cout<<"Points: "<<cloud->points.size()<<std::endl;
+}
+
 bool OccupancyGrid::download(pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr cloud)
 {
     if(cloud==nullptr)
@@ -486,8 +531,8 @@ bool OccupancyGrid::download(pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr cloud)
                     if(data->normal_found==false)
                         continue;
                     pcl::PointXYZRGBNormal pt;
-                    // auto point = data->centroid;
-                    auto point = getVoxelCenter(x,y,z);
+                    auto point = data->centroid;
+                    // auto point = getVoxelCenter(x,y,z);
                     pt.x = point(0);
                     pt.y = point(1);
                     pt.z = point(2);
