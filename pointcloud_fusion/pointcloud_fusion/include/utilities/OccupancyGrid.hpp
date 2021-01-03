@@ -35,6 +35,8 @@ constexpr int kGoodPointsThreshold = 100;
 constexpr double kBballRadius = 0.015;
 constexpr double kCylinderRadius = 0.001;
 
+constexpr int degree(double radian){return int((radian*180)/3.141592);};
+
 inline Vector3f projectPointToVector(Vector3f pt, Vector3f norm_pt, Vector3f n)
 {
     Vector3f d_xyz = n*kBballRadius;
@@ -62,7 +64,7 @@ struct VoxelInfo
     Vector3f centroid;
     Vector3f normal;
     Vector3f viewpoint;
-    vector<Vector3f> buffer;
+    vector<pair<Vector3f,Vector3f>> buffer;
     vector<unsigned long long int> dependants;
     bool normal_found;
     int count;
@@ -180,8 +182,9 @@ template<int N> bool OccupancyGrid::addPoints(pcl::PointCloud<pcl::PointXYZRGB>:
         return false;
     state_changed = true;
     // #pragma omp parallel for \ 
-    //     shared(cloud) \
-    //     num_threads(N)
+    // shared(cloud,viewpoint) \
+    //     default(none) \
+    // num_threads(N)
     for(int p=0;p<cloud->points.size();p++)
     {
         auto pt = cloud->points[p];
@@ -199,31 +202,11 @@ template<int N> bool OccupancyGrid::addPoints(pcl::PointCloud<pcl::PointXYZRGB>:
             {
                 VoxelInfo* data = reinterpret_cast<VoxelInfo*>(voxel.data);
                 if(data->normal_found==false)
-                    data->buffer.push_back(ptv);
+                    data->buffer.push_back(make_pair(ptv,viewpoint));
                 else
                 {
                     if(unprocessed_data_.find(hash)!=unprocessed_data_.end())
                         unprocessed_data_.erase(hash);
-                    // if(data->processing==true)
-                    // {
-                    //     data->buffer_private.push_back(ptv);
-                    // }
-                    // else if(data->buffer_private.size()>0)
-                    // {
-                    //     data->buffer.clear();
-                    //     data->buffer.shrink_to_fit();
-                    //     data->buffer_private.clear();
-                    //     data->buffer_private.shrink_to_fit();
-                    //     VoxelInfo* new_data = new VoxelInfo();
-                    //     new_data->normal = data->normal;
-                    //     new_data->centroid = data->centroid;
-                    //     new_data->count = data->count;
-                    //     new_data->normal_found = data->normal_found;
-                    //     new_data->processing = true;
-                    //     new_data->neighbors_done = data->neighbors_done;
-                    //     delete data;
-                    //     voxels_[x][y][z].data = reinterpret_cast<void*>(new_data);
-                    // }
                 }
             }
         }
@@ -233,31 +216,50 @@ template<int N> bool OccupancyGrid::addPoints(pcl::PointCloud<pcl::PointXYZRGB>:
             {
                 voxel.occupied = true;
                 unprocessed_data_.insert(hash);
-                VoxelInfo* data = new VoxelInfo();
-                // data->buffer.reserve(1000);
-                data->viewpoint = viewpoint;
-                data->buffer.push_back(ptv);
-                unprocessed_data_.insert(hash);
-                voxels_[x][y][z].data = reinterpret_cast<void*>(data);
-                //TODO: Allocate 1000 before hand.
+                if(voxel.data==nullptr)
+                {
+                    VoxelInfo* data = new VoxelInfo();
+                    data->buffer.reserve(1000);
+                    data->viewpoint = viewpoint;
+                    data->buffer.push_back(make_pair(ptv,viewpoint));
+                    unprocessed_data_.insert(hash);
+                    voxels_[x][y][z].data = reinterpret_cast<void*>(data);       
+                }
+                else
+                {
+                    VoxelInfo* data = reinterpret_cast<VoxelInfo*>(voxel.data);
+                    data->buffer.reserve(1000);
+                    data->viewpoint = viewpoint;
+                    data->buffer.push_back(make_pair(ptv,viewpoint));
+                    unprocessed_data_.insert(hash);
+                }
             }
         }
-        VoxelInfo* data = reinterpret_cast<VoxelInfo*>(voxel.data);
-        for(auto dependants:data->dependants)
+        // #pragma omp critical(partc)
         {
-            int xx,yy,zz;
-            tie(xx,yy,zz) = getVoxelCoords(dependants);
-            Voxel& voxel_dependant = voxels_[xx][yy][zz];
-            VoxelInfo* dependant_data = reinterpret_cast<VoxelInfo*>(voxel_dependant.data);
-            Vector3f dependant_centroid = getVoxelCenter(xx,yy,zz);
-            Vector3f projected_points = projectPointToVector(ptv,dependant_centroid,dependant_data->normal);
-            double distance_to_normal = (ptv - projected_points).norm();
-            if(distance_to_normal<kCylinderRadius)
+            Vector3f direction = (viewpoint - ptv).normalized();
+            VoxelInfo* data = reinterpret_cast<VoxelInfo*>(voxel.data);
+            int d_size = data->dependants.size();
+            for(int i=0;i<d_size;i++)
             {
-                dependant_data->count++;
-                dependant_data->centroid = dependant_data->centroid + (projected_points-dependant_data->centroid)/dependant_data->count;
-            }
+                auto dependants = data->dependants[i];
+                int xx,yy,zz;
+                tie(xx,yy,zz) = getVoxelCoords(dependants);
+                Voxel& voxel_dependant = voxels_[xx][yy][zz];
+                VoxelInfo* dependant_data = reinterpret_cast<VoxelInfo*>(voxel_dependant.data);
+                auto angle = degree(acos(direction.dot(dependant_data->normal)));
+                if(angle>60&&angle<0)
+                    continue;
+                Vector3f dependant_centroid = getVoxelCenter(xx,yy,zz);
+                Vector3f projected_points = projectPointToVector(ptv,dependant_centroid,dependant_data->normal);
+                double distance_to_normal = (ptv - projected_points).norm();
+                if(distance_to_normal<kCylinderRadius)
+                {
+                    dependant_data->count++;
+                    dependant_data->centroid = dependant_data->centroid + (projected_points-dependant_data->centroid)/dependant_data->count;
+                }
 
+            }
         }
     }
     return true;
@@ -371,29 +373,14 @@ template<int N,int K> bool OccupancyGrid::updateThicknessVectors()
                         // }
                     }
                 }
-                // std::cout<<"Total: "<<total<<" "<<counter<<std::endl;
-                // Eigen::Vector3d params = lhs.bdcSvd(Eigen::ComputeThinU | Eigen::ComputeThinV).solve(rhs);//Jacobi SVD
-                // Eigen::Vector3d params = (lhs.transpose() * lhs).ldlt().solve(lhs.transpose() * rhs);
-                // Eigen::Vector3d params = lhs.colPivHouseholderQr().solve(rhs);
-                // Eigen::Vector3f normal (params(0), params(1), 1.0);
-                // auto length = normal.norm();
-                // normal /= length;
                 Eigen::Vector3f normal;
                 Vector3f centroid = {xmin_+xres_*(x)+xres_/2.0,ymin_+yres_*(y)+yres_/2.0,zmin_+zres_*(z)+zres_/2.0};//TODO: Have only one directional resolution.
                 getNormal(cloud_buffer,normal);
                 auto vp = data->viewpoint;
-
                 auto dir = (vp - centroid).normalized();
-
-                // if(acos(normal.dot(dir))>3.141592/2.0)
-                //     normal = normal*-1;
-
-                auto neg_normal = -1*normal;
-                if(acos(neg_normal.dot(dir)<acos(normal.dot(dir))))
-                    data->normal = neg_normal;
-                else
-                    data->normal = normal;
-            
+                if(dir.dot(normal)<0)
+                    normal*=-1;
+                data->normal = normal;
                 data->normal_found = true;
                 // data->processing = true;
                 unsigned long long int hash = getHashId(x,y,z);
@@ -406,7 +393,7 @@ template<int N,int K> bool OccupancyGrid::updateThicknessVectors()
                         continue;
                     int xx,yy,zz;
                     tie(xx,yy,zz) = getVoxelCoords(neighbor);
-                    if(validCoord(x,y,z)==false)
+                    if(validCoord(xx,yy,zz)==false)
                         continue;
                     auto neighbor_voxel = voxels_[xx][yy][zz];
                     if(neighbor_voxel.occupied==true)
@@ -416,8 +403,12 @@ template<int N,int K> bool OccupancyGrid::updateThicknessVectors()
                         neighbor_data->dependants.push_back(hash);
                         for(auto pt:neighbor_data->buffer)
                         {
-                            Vector3f projected_points = projectPointToVector(pt,centroid,data->normal);
-                            double distance_to_normal = (pt - projected_points).norm();
+                            Vector3f direction = (pt.second - pt.first).normalized();
+                            auto angle = degree(acos(direction.dot(data->normal)));
+                            if(angle>60&&angle<0)
+                                continue;
+                            Vector3f projected_points = projectPointToVector(pt.first,centroid,data->normal);
+                            double distance_to_normal = (pt.first - projected_points).norm();
                             if(distance_to_normal<kCylinderRadius)
                             {
                                 data->count++;
@@ -425,6 +416,13 @@ template<int N,int K> bool OccupancyGrid::updateThicknessVectors()
                             }
                         }
 
+                    }
+                    else
+                    {
+                        VoxelInfo* neighbor_data = new VoxelInfo();
+                        auto neighbor_hash = getHashId(xx,yy,zz);
+                        neighbor_data->dependants.push_back(hash);
+                        voxels_[xx][yy][zz].data = reinterpret_cast<void*>(neighbor_data);       
                     }
                 }
             }

@@ -1,5 +1,5 @@
 <launch>
-  <node name="capture_pointcloud_data" pkg="pointcloud_fusion" type="pointcloud_fusion_and_filter" output="screen">
+  <node name="capture_pointcloud_data" pkg="pointcloud_fusion" type="capture_pointcloud_data" output="screen">
     <remap from="~input_point_cloud" to="/camera/depth/color/points" />
     <remap from="~input_color_image" to="/camera/color/image_raw" />
     <remap from="~input_depth_image" to="/camera/aligned_depth_to_color/image_raw" />

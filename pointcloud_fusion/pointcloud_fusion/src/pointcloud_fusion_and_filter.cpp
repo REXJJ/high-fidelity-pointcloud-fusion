@@ -307,13 +307,13 @@ void PointcloudFusion::cleanGrid()
             if(start_==true)
             {
                 std::cout<<"Started Cleaning.."<<std::endl;
-                grid_.updateThicknessVectors<6,5>();
+                grid_.updateThicknessVectors<6,3>();
                 std::cout<<"Finished Cleaning.."<<std::endl;
             }
             else
             {
                 std::cout<<"Started Cleaning OMP.."<<std::endl;
-                grid_.updateThicknessVectors<8,5>();
+                grid_.updateThicknessVectors<8,3>();
                 std::cout<<"Finished Cleaning OMP.."<<std::endl;
             }
         }
