@@ -156,7 +156,7 @@ PointcloudFusion::PointcloudFusion(ros::NodeHandle& nh,const std::string& fusion
     start_ = false;
     cloud_subscription_started_ = false;
     grid_.setResolution(0.005,0.005,0.005);
-    grid_.setDimensions(0.80,1.80,-0.5,0.5,0,0.5);
+    grid_.setDimensions(-0.80,1.80,-1.5,1.5,0,1.0);
     grid_.setK(2);
     grid_.construct();
     std::cout<<"Construction done.."<<std::endl;
@@ -248,7 +248,7 @@ void PointcloudFusion::addPoints()
         // boxFilter.setInputCloud(body);
         // boxFilter.filter(*bodyFiltered);
         for(auto point:cloud.points)
-            if(point.z<2.0&&point.z>0.28)
+            if(point.z<0.6&&point.z>0.28)
             {
                 cloud_clipped->points.push_back(point);
             }
