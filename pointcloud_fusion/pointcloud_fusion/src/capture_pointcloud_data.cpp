@@ -125,42 +125,46 @@ vector<double> affineMatrixToVector(Eigen::Affine3d transformation)
 
 class PointcloudFusion
 {
-	public:
-		PointcloudFusion(ros::NodeHandle& nh, const std::string& tsdf_frame,std::vector<double>& box,string directory_name);
+    public:
+        PointcloudFusion(ros::NodeHandle& nh, const std::string& tsdf_frame,std::vector<double>& box,string directory_name);
 
-	private:
+    private:
         //Subscribers
-		/** @brief Subscriber that listens to incoming point clouds */
-		ros::Subscriber point_cloud_sub_;
-		/** @brief Buffer used to store locations of the camera (*/
-		tf2_ros::Buffer tf_buffer_;
-		/** @brief Listener used to look up tranforms for the location of the camera */
-		tf2_ros::TransformListener robot_tform_listener_;
+        /** @brief Subscriber that listens to incoming point clouds */
+        ros::Subscriber point_cloud_sub_;
+        /** @brief Buffer used to store locations of the camera (*/
+        tf2_ros::Buffer tf_buffer_;
+        /** @brief Listener used to look up tranforms for the location of the camera */
+        tf2_ros::TransformListener robot_tform_listener_;
         void onReceivedPointCloud(sensor_msgs::PointCloud2Ptr cloud_in);
         //Services
-		ros::ServiceServer capture_service_;
-		bool capture(std_srvs::TriggerRequest& req, std_srvs::TriggerResponse& res);
+        ros::ServiceServer capture_service_,finish_service_;
+        bool capture(std_srvs::TriggerRequest& req, std_srvs::TriggerResponse& res);
+        bool finish(std_srvs::TriggerRequest& req, std_srvs::TriggerResponse& res);
         //Objects
-		std::string fusion_frame_;
-		std::string pointcloud_frame_;
-		string directory_name_;
+        std::string fusion_frame_;
+        std::string pointcloud_frame_;
+        string directory_name_;
         vector<double>& bounding_box_;
+        ofstream ofile_;
 
         bool capture_;
         bool cloud_subscription_started_;
 };
 
 PointcloudFusion::PointcloudFusion(ros::NodeHandle& nh,const std::string& fusion_frame,vector<double>& box,string directory_name)
-	: robot_tform_listener_(tf_buffer_)
-	, fusion_frame_(fusion_frame)
-	, bounding_box_(box)
-	, directory_name_(directory_name)
+    : robot_tform_listener_(tf_buffer_)
+    , fusion_frame_(fusion_frame)
+    , bounding_box_(box)
+    , directory_name_(directory_name)
 {  // Subscribe to point cloud
     point_cloud_sub_ = nh.subscribe("input_point_cloud", 100, &PointcloudFusion::onReceivedPointCloud,this);
-	// point_cloud_sub_ = nh.subscribe("input_point_cloud", 1, &PointcloudFusion::onReceivedPointCloudDisplay,this);
-	capture_service_= nh.advertiseService("capture",&PointcloudFusion::capture, this);
+    // point_cloud_sub_ = nh.subscribe("input_point_cloud", 1, &PointcloudFusion::onReceivedPointCloudDisplay,this);
+    capture_service_= nh.advertiseService("capture",&PointcloudFusion::capture, this);
+    finish_service_= nh.advertiseService("finish",&PointcloudFusion::finish, this);
     capture_ = false;
     cloud_subscription_started_ = false;
+    ofile_.open ("/home/rflin/Desktop/calib_data/BaseToFlange.txt");
     std::cout<<"Initialization done.."<<std::endl;
 }
 
@@ -195,6 +199,10 @@ void PointcloudFusion::onReceivedPointCloud(sensor_msgs::PointCloud2Ptr cloud_in
         auto _6dof = affineMatrixToVector(fusion_frame_T_camera);
         for(int i=0;i<6;i++)
             std::cout<<_6dof[i]<<" ";
+        ofile_<<_6dof[0]*1000.0<<","<<_6dof[1]*1000.0<<","<<_6dof[2]*1000.0;
+        for(int i=3;i<6;i++)
+            ofile_<<","<<_6dof[i];
+        ofile_<<"\n";
         std::cout<<std::endl;
         std::cout<<"Saving the cloud.."<<counter+1<<std::endl;
         cloud_temp->height = 1;
@@ -209,24 +217,33 @@ bool PointcloudFusion::capture(std_srvs::TriggerRequest& req, std_srvs::TriggerR
     std::cout<<"Capture"<<std::endl;
     capture_ = true;
     res.success=true;
-	return true;
+    return true;
+}
+
+bool PointcloudFusion::finish(std_srvs::TriggerRequest& req, std_srvs::TriggerResponse& res)
+{
+    std::cout<<"Finishing"<<std::endl;
+    ofile_.close();
+    capture_ = false;
+    res.success=true;
+    return true;
 }
 
 int main(int argc, char** argv)
 {
-	ros::init(argc, argv, "fusion_node");
-	ros::NodeHandle pnh("~");
-	string fusion_frame="";
-	pnh.param<std::string>("fusion_frame", fusion_frame, "fusion_frame");
-	string directory_name = "/home/rex/REX_WS/Catkin_WS/data/";
-	std::vector<double> bounding_box;
-	pnh.param("bounding_box", bounding_box, std::vector<double>());
-	PointcloudFusion dc(pnh,fusion_frame,bounding_box,directory_name); 
-	ros::Rate loop_rate(11);
-	while(ros::ok())
-	{
-		ros::spinOnce();
-		loop_rate.sleep();
-	}   
-	return 0;
+    ros::init(argc, argv, "fusion_node");
+    ros::NodeHandle pnh("~");
+    string fusion_frame="";
+    pnh.param<std::string>("fusion_frame", fusion_frame, "fusion_frame");
+    string directory_name = "/home/rex/REX_WS/Catkin_WS/data/";
+    std::vector<double> bounding_box;
+    pnh.param("bounding_box", bounding_box, std::vector<double>());
+    PointcloudFusion dc(pnh,fusion_frame,bounding_box,directory_name); 
+    ros::Rate loop_rate(11);
+    while(ros::ok())
+    {
+        ros::spinOnce();
+        loop_rate.sleep();
+    }   
+    return 0;
 }

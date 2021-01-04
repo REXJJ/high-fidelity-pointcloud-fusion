@@ -248,8 +248,8 @@ template<int N> bool OccupancyGrid::addPoints(pcl::PointCloud<pcl::PointXYZRGB>:
                 Voxel& voxel_dependant = voxels_[xx][yy][zz];
                 VoxelInfo* dependant_data = reinterpret_cast<VoxelInfo*>(voxel_dependant.data);
                 auto angle = degree(acos(direction.dot(dependant_data->normal)));
-                if(angle>60&&angle<0)
-                    continue;
+                // if(angle>60&&angle<0)
+                //     continue;
                 Vector3f dependant_centroid = getVoxelCenter(xx,yy,zz);
                 Vector3f projected_points = projectPointToVector(ptv,dependant_centroid,dependant_data->normal);
                 double distance_to_normal = (ptv - projected_points).norm();
@@ -405,8 +405,8 @@ template<int N,int K> bool OccupancyGrid::updateThicknessVectors()
                         {
                             Vector3f direction = (pt.second - pt.first).normalized();
                             auto angle = degree(acos(direction.dot(data->normal)));
-                            if(angle>60&&angle<0)
-                                continue;
+                            // if(angle>60&&angle<0)
+                            //     continue;
                             Vector3f projected_points = projectPointToVector(pt.first,centroid,data->normal);
                             double distance_to_normal = (pt.first - projected_points).norm();
                             if(distance_to_normal<kCylinderRadius)
