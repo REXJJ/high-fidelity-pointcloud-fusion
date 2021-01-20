@@ -126,7 +126,7 @@ vector<double> affineMatrixToVector(Eigen::Affine3d transformation)
 class PointcloudFusion
 {
     public:
-        PointcloudFusion(ros::NodeHandle& nh, const std::string& tsdf_frame,std::vector<double>& box,string directory_name);
+        PointcloudFusion(ros::NodeHandle& nh, const std::string& tsdf_frame,std::vector<double>& box,string directory_name,std::string flange_frame);
 
     private:
         //Subscribers
@@ -143,6 +143,7 @@ class PointcloudFusion
         bool finish(std_srvs::TriggerRequest& req, std_srvs::TriggerResponse& res);
         //Objects
         std::string fusion_frame_;
+        std::string flange_frame_;
         std::string pointcloud_frame_;
         string directory_name_;
         vector<double>& bounding_box_;
@@ -152,7 +153,7 @@ class PointcloudFusion
         bool cloud_subscription_started_;
 };
 
-PointcloudFusion::PointcloudFusion(ros::NodeHandle& nh,const std::string& fusion_frame,vector<double>& box,string directory_name)
+PointcloudFusion::PointcloudFusion(ros::NodeHandle& nh,const std::string& fusion_frame,vector<double>& box,string directory_name,string flange_frame)
     : robot_tform_listener_(tf_buffer_)
     , fusion_frame_(fusion_frame)
     , bounding_box_(box)
@@ -164,7 +165,9 @@ PointcloudFusion::PointcloudFusion(ros::NodeHandle& nh,const std::string& fusion
     finish_service_= nh.advertiseService("finish",&PointcloudFusion::finish, this);
     capture_ = false;
     cloud_subscription_started_ = false;
-    ofile_.open ("/home/rflin/Desktop/calib_data/BaseToFlange.txt");
+    directory_name_ = directory_name;
+    flange_frame_ = flange_frame;
+    ofile_.open (directory_name_+"/BaseToFlange.txt");
     std::cout<<"Initialization done.."<<std::endl;
 }
 
@@ -207,7 +210,7 @@ void PointcloudFusion::onReceivedPointCloud(sensor_msgs::PointCloud2Ptr cloud_in
         std::cout<<"Saving the cloud.."<<counter+1<<std::endl;
         cloud_temp->height = 1;
         cloud_temp->width = cloud_temp->points.size();
-        pcl::io::savePCDFileASCII ("/home/rflin/Desktop/calib_data/pos_"+to_string(++counter)+".pcd",*cloud_temp);
+        pcl::io::savePCDFileASCII (directory_name_+"/pos_"+to_string(++counter)+".pcd",*cloud_temp);
         capture_ = false;
     }
 }
@@ -234,11 +237,14 @@ int main(int argc, char** argv)
     ros::init(argc, argv, "fusion_node");
     ros::NodeHandle pnh("~");
     string fusion_frame="";
+    string flange_frame="";
     pnh.param<std::string>("fusion_frame", fusion_frame, "fusion_frame");
-    string directory_name = "/home/rex/REX_WS/Catkin_WS/data/";
+    pnh.param<std::string>("flange_frame", flange_frame, "flange_frame");
+    string directory_name = "";
+    pnh.param<std::string>("directory_name", directory_name, "./");
     std::vector<double> bounding_box;
     pnh.param("bounding_box", bounding_box, std::vector<double>());
-    PointcloudFusion dc(pnh,fusion_frame,bounding_box,directory_name); 
+    PointcloudFusion dc(pnh,fusion_frame,bounding_box,directory_name,flange_frame); 
     ros::Rate loop_rate(11);
     while(ros::ok())
     {

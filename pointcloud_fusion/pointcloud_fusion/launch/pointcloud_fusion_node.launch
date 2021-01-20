@@ -1,5 +1,5 @@
 <launch>
-  <node name="capture_pointcloud_data" pkg="pointcloud_fusion" type="pointcloud_fusion_and_filter" output="screen">
+  <node name="capture_pointcloud_data" pkg="pointcloud_fusion" type="capture_pointcloud_data" output="screen">
     <remap from="~input_point_cloud" to="/camera/depth/color/points" />
     <remap from="~input_color_image" to="/camera/color/image_raw" />
     <remap from="~input_depth_image" to="/camera/aligned_depth_to_color/image_raw" />
@@ -8,6 +8,8 @@
     <remap from="~capture_data" to="/data_collector_node/capture_point_cloud" />
     <remap from="~data_collected" to="/data_collected" />
     <param name="fusion_frame" value="base_link"/>
+    <param name="flange_frame" value="tool0"/>
+    <param name="directory_name" value="/home/rex/Desktop/dir_test"/>
     <rosparam param="bounding_box">[0.28,0.65,-0.44,0.39,0.01,0.50]</rosparam>
   </node>
 </launch>

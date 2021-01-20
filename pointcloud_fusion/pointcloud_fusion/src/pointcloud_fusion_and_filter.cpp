@@ -421,7 +421,7 @@ bool PointcloudFusion::getFusedCloud(std_srvs::TriggerRequest& req, std_srvs::Tr
     cloud_normals->width = cloud_normals->points.size();
 
 
-#if 1
+#if 0
     pcl::io::savePCDFileASCII ("/home/rflin/Desktop/test_cloud.pcd",*cloud);
     pcl::io::savePCDFileASCII ("/home/rflin/Desktop/test_cloud_50.pcd",*cloud_50);
     pcl::io::savePCDFileASCII ("/home/rflin/Desktop/test_cloud_100.pcd",*cloud_100);
@@ -435,6 +435,15 @@ bool PointcloudFusion::getFusedCloud(std_srvs::TriggerRequest& req, std_srvs::Tr
     pcl::io::savePCDFileASCII ("/home/rflin/Desktop/test_cloud_normals.pcd",*cloud_normals);
 #else
     pcl::io::savePCDFileASCII ("/home/rex/Desktop/test_cloud.pcd",*cloud);
+    pcl::io::savePCDFileASCII ("/home/rex/Desktop/test_cloud_50.pcd",*cloud_50);
+    pcl::io::savePCDFileASCII ("/home/rex/Desktop/test_cloud_100.pcd",*cloud_100);
+    pcl::io::savePCDFileASCII ("/home/rex/Desktop/test_cloud_150.pcd",*cloud_150);
+    pcl::io::savePCDFileASCII ("/home/rex/Desktop/test_cloud_200.pcd",*cloud_200);
+    pcl::io::savePCDFileASCII ("/home/rex/Desktop/test_cloud_250.pcd",*cloud_250);
+    pcl::io::savePCDFileASCII ("/home/rex/Desktop/test_cloud_300.pcd",*cloud_300);
+
+
+    pcl::io::savePCDFileASCII ("/home/rex/Desktop/test_cloud_classified.pcd",*cloud_classified);
     pcl::io::savePCDFileASCII ("/home/rex/Desktop/test_cloud_normals.pcd",*cloud_normals);
 #endif
     grid_.clearVoxels();

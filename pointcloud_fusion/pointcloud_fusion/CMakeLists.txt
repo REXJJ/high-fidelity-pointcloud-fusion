@@ -218,12 +218,12 @@ find_package(OpenCV REQUIRED)
 find_package( CGAL QUIET COMPONENTS  )
 include_directories(${OpenCV_INCLUDE_DIRS})
 
-if ( NOT CGAL_FOUND )
-
-  message(STATUS "This project requires the CGAL library, and will not be compiled.")
-  return()  
-
-endif()
+# if ( NOT CGAL_FOUND )
+#
+#   message(STATUS "This project requires the CGAL library, and will not be compiled.")
+#   return()  
+#
+# endif()
 
 
 # Boost and its components
