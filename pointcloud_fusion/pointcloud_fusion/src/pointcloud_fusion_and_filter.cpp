@@ -88,6 +88,10 @@ using namespace std;
 using namespace pcl;
 using namespace boost::interprocess;
 
+constexpr double kResolution = 0.005;
+constexpr double kZmin = 0.28;
+constexpr double kZmax = 0.6;
+
 /**
  * @brief The data collection class deals with collecting pointclouds, color and depth images.
  */
@@ -126,7 +130,6 @@ class PointcloudFusion
         std::deque<std::pair<Eigen::Affine3d,sensor_msgs::PointCloud2Ptr>> clouds_;
         std::deque<std::tuple<Eigen::Affine3d,pcl::PointCloud<pcl::PointXYZRGB>::Ptr>> clouds_processed_;
         OccupancyGrid grid_;
-        pcl::CropBox<pcl::PointXYZRGB> box_filter_;
         vector<double>& bounding_box_;
 
         bool start_;
@@ -155,13 +158,11 @@ PointcloudFusion::PointcloudFusion(ros::NodeHandle& nh,const std::string& fusion
 	processed_cloud_ = nh.advertise<sensor_msgs::PointCloud2>("pcl_fusion_node/processed_cloud_normals",1);
     start_ = false;
     cloud_subscription_started_ = false;
-    grid_.setResolution(0.005,0.005,0.005);
-    grid_.setDimensions(-0.80,1.80,-1.5,1.5,0,1.0);
+    grid_.setResolution(kResolution,kResolution,kResolution);
+    grid_.setDimensions(box[0],box[1],box[2],box[3],box[4],box[5]);
     grid_.setK(2);
     grid_.construct();
     std::cout<<"Construction done.."<<std::endl;
-    box_filter_.setMin(Eigen::Vector4f(-10, -10, 0.28, 1.0));
-    box_filter_.setMax(Eigen::Vector4f(10, 10, 0.81, 1.0));
     threads_.push_back(std::thread(&PointcloudFusion::addPoints, this));
     threads_.push_back(std::thread(&PointcloudFusion::updateStates, this));
     threads_.push_back(std::thread(&PointcloudFusion::cleanGrid,this));
@@ -248,7 +249,7 @@ void PointcloudFusion::addPoints()
         // boxFilter.setInputCloud(body);
         // boxFilter.filter(*bodyFiltered);
         for(auto point:cloud.points)
-            if(point.z<0.6&&point.z>0.28)
+            if(point.z<kZmax&&point.z>kZmin)
             {
                 cloud_clipped->points.push_back(point);
             }
@@ -420,32 +421,15 @@ bool PointcloudFusion::getFusedCloud(std_srvs::TriggerRequest& req, std_srvs::Tr
     cloud_normals->height = 1;
     cloud_normals->width = cloud_normals->points.size();
 
-
-#if 0
-    pcl::io::savePCDFileASCII ("/home/rflin/Desktop/test_cloud.pcd",*cloud);
-    pcl::io::savePCDFileASCII ("/home/rflin/Desktop/test_cloud_50.pcd",*cloud_50);
-    pcl::io::savePCDFileASCII ("/home/rflin/Desktop/test_cloud_100.pcd",*cloud_100);
-    pcl::io::savePCDFileASCII ("/home/rflin/Desktop/test_cloud_150.pcd",*cloud_150);
-    pcl::io::savePCDFileASCII ("/home/rflin/Desktop/test_cloud_200.pcd",*cloud_200);
-    pcl::io::savePCDFileASCII ("/home/rflin/Desktop/test_cloud_250.pcd",*cloud_250);
-    pcl::io::savePCDFileASCII ("/home/rflin/Desktop/test_cloud_300.pcd",*cloud_300);
-
-
-    pcl::io::savePCDFileASCII ("/home/rflin/Desktop/test_cloud_classified.pcd",*cloud_classified);
-    pcl::io::savePCDFileASCII ("/home/rflin/Desktop/test_cloud_normals.pcd",*cloud_normals);
-#else
-    pcl::io::savePCDFileASCII ("/home/rex/Desktop/test_cloud.pcd",*cloud);
-    pcl::io::savePCDFileASCII ("/home/rex/Desktop/test_cloud_50.pcd",*cloud_50);
-    pcl::io::savePCDFileASCII ("/home/rex/Desktop/test_cloud_100.pcd",*cloud_100);
-    pcl::io::savePCDFileASCII ("/home/rex/Desktop/test_cloud_150.pcd",*cloud_150);
-    pcl::io::savePCDFileASCII ("/home/rex/Desktop/test_cloud_200.pcd",*cloud_200);
-    pcl::io::savePCDFileASCII ("/home/rex/Desktop/test_cloud_250.pcd",*cloud_250);
-    pcl::io::savePCDFileASCII ("/home/rex/Desktop/test_cloud_300.pcd",*cloud_300);
-
-
-    pcl::io::savePCDFileASCII ("/home/rex/Desktop/test_cloud_classified.pcd",*cloud_classified);
-    pcl::io::savePCDFileASCII ("/home/rex/Desktop/test_cloud_normals.pcd",*cloud_normals);
-#endif
+    pcl::io::savePCDFileASCII (directory_name_+"/test_cloud.pcd",*cloud);
+    pcl::io::savePCDFileASCII (directory_name_+"/test_cloud_50.pcd",*cloud_50);
+    pcl::io::savePCDFileASCII (directory_name_+"/test_cloud_100.pcd",*cloud_100);
+    pcl::io::savePCDFileASCII (directory_name_+"/test_cloud_150.pcd",*cloud_150);
+    pcl::io::savePCDFileASCII (directory_name_+"/test_cloud_200.pcd",*cloud_200);
+    pcl::io::savePCDFileASCII (directory_name_+"/test_cloud_250.pcd",*cloud_250);
+    pcl::io::savePCDFileASCII (directory_name_+"/test_cloud_300.pcd",*cloud_300);
+    pcl::io::savePCDFileASCII (directory_name_+"/test_cloud_classified.pcd",*cloud_classified);
+    pcl::io::savePCDFileASCII (directory_name_+"/test_cloud_normals.pcd",*cloud_normals);
     grid_.clearVoxels();
     return true;
 }
@@ -456,7 +440,8 @@ int main(int argc, char** argv)
 	ros::NodeHandle pnh("~");
 	string fusion_frame="";
 	pnh.param<std::string>("fusion_frame", fusion_frame, "fusion_frame");
-	string directory_name = "/home/rex/REX_WS/Catkin_WS/data/";
+	string directory_name = "";
+	pnh.param<std::string>("directory_name", directory_name, "./");
 	std::vector<double> bounding_box;
 	pnh.param("bounding_box", bounding_box, std::vector<double>());
 	PointcloudFusion dc(pnh,fusion_frame,bounding_box,directory_name); 

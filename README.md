@@ -1,10 +1,12 @@
-# DataCollectionNodeFor3dCamera
+# HighFidelityPointcloudFusion 
 
-* Add the global frame name, the flange frame name and the directory in which you want to save the data in the launch file.
+* Add the global frame name, the flange frame name, a bounding box and the directory in which you want to save the data in the launch file.
 
 * roslaunch pointcloud_fusion pointcloud_fusion_node.launch
 
-* Use rqt to run the services: catpure and finish.
+* Use the following services:
+   - start : starts capturing the pointclouds and adds to the occupancy grid.
+   - stop : stops capturing.
+   - process : extracts pointcloud in the occupancy grid and stores it in the given directory. 
 
-	Use capture to capture the pointclouds and the robot IK values at those points.
-	Use finish to finish recording and save the data. 
+* WARNING: Check the RAM usage the first time you run this node. 
