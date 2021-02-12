@@ -253,3 +253,5 @@ target_link_libraries(${firstfile} ${PCL_LIBRARIES} ${OpenCV_LIBS} -lrt)
 endfunction()
 
 create_exe(pointcloud_fusion_and_filter)
+create_exe(pcl_fusion_full_downsample)
+create_exe(pcl_fusion_keyframes)

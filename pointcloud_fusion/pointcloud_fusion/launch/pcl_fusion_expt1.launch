@@ -1,0 +1,10 @@
+<launch>
+  <node name="pcl_fusion_full_downsample" pkg="pointcloud_fusion" type="pcl_fusion_full_downsample" output="screen">
+    <remap from="~input_point_cloud" to="/camera/depth/color/points" />
+    <param name="fusion_frame" value="base_link"/>
+    <param name="flange_frame" value="tool0"/>
+    <param name="directory_name" value="/home/rex/Desktop/data"/>
+    <rosparam param="bounding_box">[-0.80,1.80,-1.5,1.5,0,1.0]</rosparam>
+    <!-- xmin,xmax,ymin,ymax,zmin,zmax --> 
+  </node>
+</launch>
