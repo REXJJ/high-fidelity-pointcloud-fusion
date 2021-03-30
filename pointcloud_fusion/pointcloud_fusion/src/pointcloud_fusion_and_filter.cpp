@@ -392,7 +392,11 @@ bool PointcloudFusion::getFusedCloud(std_srvs::TriggerRequest& req, std_srvs::Tr
         }
         sleep(1);
     }
-    std::cout<<"Downloading cloud."<<std::endl;
+    std::string cloud_location = directory_name_ + "/test_cloud.pcd";
+    std::string meta_location = directory_name_ + "/meta.csv";
+    std::cout<<"Downloading cloud and metadata to "<<cloud_location<<" and "<<meta_location<<std::endl;
+    grid_.downloadData(cloud_location,meta_location);
+#if 0
     pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud(new pcl::PointCloud<pcl::PointXYZRGB>);
     pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud_classified(new pcl::PointCloud<pcl::PointXYZRGB>);
     pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr cloud_normals(new pcl::PointCloud<pcl::PointXYZRGBNormal>);
@@ -430,6 +434,7 @@ bool PointcloudFusion::getFusedCloud(std_srvs::TriggerRequest& req, std_srvs::Tr
     pcl::io::savePCDFileASCII (directory_name_+"/test_cloud_300.pcd",*cloud_300);
     pcl::io::savePCDFileASCII (directory_name_+"/test_cloud_classified.pcd",*cloud_classified);
     pcl::io::savePCDFileASCII (directory_name_+"/test_cloud_normals.pcd",*cloud_normals);
+#endif
     grid_.clearVoxels();
     return true;
 }

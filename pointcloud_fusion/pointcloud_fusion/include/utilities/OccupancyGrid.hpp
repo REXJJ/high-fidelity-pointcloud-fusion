@@ -63,6 +63,9 @@ struct VoxelInfo
 {
     Vector3f centroid;
     Vector3f normal;
+    Vector3f sd;
+    float sd_dist;
+    float mean_dist;
     Vector3f viewpoint;
     vector<pair<Vector3f,Vector3f>> buffer;
     vector<unsigned long long int> dependants;
@@ -73,6 +76,8 @@ struct VoxelInfo
         normal_found = false;
         count = 0;
         centroid = {0,0,0};
+        sd = {0,0,0};
+        sd_dist = 0;
     }
 };
 
@@ -117,6 +122,7 @@ class OccupancyGrid
         bool clearVoxels();
         bool download(pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud);
         bool download(pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr cloud);
+        bool downloadData(std::string cloud_location, std::string metadata);
         bool downloadHQ(pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud, double threshold = kGoodPointsThreshold);
         bool downloadClassified(pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud);
         bool setK(int k);
@@ -256,7 +262,15 @@ template<int N> bool OccupancyGrid::addPoints(pcl::PointCloud<pcl::PointXYZRGB>:
                 if(distance_to_normal<kCylinderRadius)
                 {
                     dependant_data->count++;
+                    auto old_mean = dependant_data->centroid;
                     dependant_data->centroid = dependant_data->centroid + (projected_points-dependant_data->centroid)/dependant_data->count;
+                    dependant_data->sd(0) = dependant_data->sd(0) + ((projected_points(0)-dependant_data->centroid(0))*((projected_points(0)-old_mean(0)))-dependant_data->sd(0))/dependant_data->count; 
+                    dependant_data->sd(1) = dependant_data->sd(1) + ((projected_points(1)-dependant_data->centroid(1))*((projected_points(1)-old_mean(1)))-dependant_data->sd(1))/dependant_data->count; 
+                    dependant_data->sd(2) = dependant_data->sd(2) + ((projected_points(2)-dependant_data->centroid(2))*((projected_points(2)-old_mean(2)))-dependant_data->sd(2))/dependant_data->count; 
+
+                    auto old_mean_dist = dependant_data->mean_dist;
+                    dependant_data->mean_dist = dependant_data->mean_dist + (distance_to_normal-dependant_data->mean_dist)/dependant_data->count;
+                    dependant_data->sd_dist = dependant_data->sd_dist + ((distance_to_normal-dependant_data->mean_dist)*(distance_to_normal-old_mean_dist)-dependant_data->sd_dist)/dependant_data->count;
                 }
 
             }
@@ -412,7 +426,16 @@ template<int N,int K> bool OccupancyGrid::updateThicknessVectors()
                             if(distance_to_normal<kCylinderRadius)
                             {
                                 data->count++;
+                                auto old_mean = data->centroid;
                                 data->centroid = data->centroid + (projected_points-data->centroid)/data->count;
+                                // data->sd = data->sd + ((projected_points-data->centroid).cwiseProduct((projected_points-old_mean))-data->sd)/data->count; 
+                                data->sd(0) = data->sd(0) + ((projected_points(0)-data->centroid(0))*((projected_points(0)-old_mean(0)))-data->sd(0))/data->count; 
+                                data->sd(1) = data->sd(1) + ((projected_points(1)-data->centroid(1))*((projected_points(1)-old_mean(1)))-data->sd(1))/data->count; 
+                                data->sd(2) = data->sd(2) + ((projected_points(2)-data->centroid(2))*((projected_points(2)-old_mean(2)))-data->sd(2))/data->count; 
+
+                                auto old_mean_dist = data->mean_dist;
+                                data->mean_dist = data->mean_dist + (distance_to_normal-data->mean_dist)/data->count;
+                                data->sd_dist = data->sd_dist + ((distance_to_normal-data->mean_dist)*(distance_to_normal-old_mean_dist)-data->sd_dist)/data->count;
                             }
                         }
 
@@ -429,6 +452,41 @@ template<int N,int K> bool OccupancyGrid::updateThicknessVectors()
         }
     }
 }
+
+bool OccupancyGrid::downloadData(std::string cloud_location, std::string metadata)
+{
+    pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr cloud( new pcl::PointCloud<pcl::PointXYZRGBNormal> );
+    std::cout<<"Copying the pointcloud..."<<std::endl;
+    std::ofstream ofile(metadata);
+    unsigned long long int counter = 0;
+    ofile<<"Id,sdx,sdy,sdz,mean distance from normal, distance from normal sd, points in cylinder"<<std::endl;
+    for(int x=0;x<xdim_;x++)
+        for(int y=0;y<ydim_;y++)
+            for(int z=0;z<zdim_;z++)
+                if(voxels_[x][y][z].occupied)
+                {
+                    VoxelInfo* data = reinterpret_cast<VoxelInfo*>(voxels_[x][y][z].data);
+                    if(data->normal_found==false)
+                        continue;
+                    pcl::PointXYZRGBNormal pt;
+                    auto point = data->centroid;
+                    // auto point = getVoxelCenter(x,y,z);
+                    pt.x = point(0);
+                    pt.y = point(1);
+                    pt.z = point(2);
+                    memcpy(pt.normal,data->normal.data(),3*sizeof(float));
+                    ofile<<counter++<<","<<data->sd(0)<<","<<data->sd(1)<<","<<data->sd(2)<<","<<data->mean_dist<<","<<data->sd_dist<<","<<data->count<<std::endl;
+                    cloud->points.push_back(pt);
+                }
+    std::cout<<"Saved the pointcloud..."<<std::endl;
+    std::cout<<"Points: "<<cloud->points.size()<<std::endl;
+    cloud->height = 1;
+    cloud->width = cloud->points.size();
+    pcl::io::savePCDFileASCII (cloud_location,*cloud);
+    std::cout<<"Saving the metadata..."<<std::endl;
+    return true;
+}
+
 
 bool OccupancyGrid::download(pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud)
 {
